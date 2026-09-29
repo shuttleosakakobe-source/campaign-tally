@@ -1,10 +1,10 @@
 """キャンペーン集計アプリのメイン画面。
 顧客コード検索、キャンペーン実績の入力フォーム、管理職チェック（承認・破棄）、
-過去データの修正・破棄を実装している。
+過去データの修正・破棄、きれいBOX販売ランキングを実装している。
 集計（承認済みデータの件数・金額などの集計表示）はまだ仕様検討中のため未実装。"""
 import streamlit as st
 import pandas as pd
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from views.common import lookup_customer, post_to_gas, read_csv_cached, BRANCH_CUSTOMER_CSV, CAMPAIGN_SHEET_URL, CAMPAIGN_SHEET_CSV, JST
 
@@ -551,6 +551,98 @@ def _past_data_section():
                     _update_status(row, row_id, "破棄", comment)
 
 
+def _render_ranking_table(ranked):
+    if ranked.empty:
+        st.caption("データがありません。")
+        return
+    display_rows = []
+    for rank, (_, r) in enumerate(ranked.iterrows(), start=1):
+        display_rows.append({
+            "順位": rank,
+            "氏名": r["_name"],
+            "販売数": int(r["sales"]),
+            "金額": f"{_fmt_amount(r['amount']) or 0}円",
+        })
+    st.table(pd.DataFrame(display_rows).set_index("順位"))
+
+
+def _ranking_section():
+    """きれいBOXの販売個数ランキング（累計TOP5・直近の販売日TOP3）を表示する。
+    全拠点・承認済みデータのみが対象。"""
+    st.write("**🏆 きれいBOX販売ランキング**")
+    st.caption("全拠点の承認済みデータが対象です。")
+
+    if st.button("🔄 最新のデータを読み込む", key="camp_rank_reload"):
+        read_csv_cached.clear()
+
+    try:
+        df = read_csv_cached(CAMPAIGN_SHEET_CSV, header=0)
+    except Exception as e:
+        st.error(f"データ取得エラー: {e}")
+        return
+
+    if df.empty or len(df.columns) <= STATUS_COL:
+        st.info("データがありません。")
+        return
+
+    kb_df = df[
+        (df.iloc[:, STATUS_COL].astype(str).str.strip() == "承認済み")
+        & (df.iloc[:, 8].astype(str).str.strip() == "きれいBOX")
+    ].copy()
+
+    if kb_df.empty:
+        st.info("きれいBOXの承認済みデータがまだありません。")
+        return
+
+    kb_df["_sales"] = pd.to_numeric(kb_df.iloc[:, 9], errors="coerce").fillna(0)
+    kb_df["_price"] = pd.to_numeric(kb_df.iloc[:, 10], errors="coerce").fillna(0)
+    kb_df["_amount"] = kb_df["_sales"] * kb_df["_price"]
+    kb_df["_name"] = kb_df.iloc[:, 1].astype(str).str.strip()
+
+    st.write("**🥇 累計 販売個数 TOP5**")
+    overall = (
+        kb_df.groupby("_name")
+        .agg(sales=("_sales", "sum"), amount=("_amount", "sum"))
+        .reset_index()
+        .sort_values("sales", ascending=False)
+        .head(5)
+    )
+    _render_ranking_table(overall)
+
+    st.write("---")
+
+    # 💡 タイムスタンプの日付ベースで、前日から最大14日さかのぼり、
+    #    最初に1件以上データがある日を「直近の販売日」として扱う
+    #    （休日など、その日にデータが無い場合は自動的にその前の日にする）。
+    kb_df["_date"] = pd.to_datetime(
+        kb_df.iloc[:, 0], errors="coerce", format="%Y/%m/%d %H:%M:%S"
+    ).dt.date
+
+    target_date = None
+    day = datetime.now(JST).date() - timedelta(days=1)
+    for _ in range(14):
+        if (kb_df["_date"] == day).any():
+            target_date = day
+            break
+        day -= timedelta(days=1)
+
+    if target_date is None:
+        st.write("**🥈 直近の販売日 TOP3**")
+        st.caption("直近14日間のデータが見つかりませんでした。")
+        return
+
+    st.write(f"**🥈 {target_date.strftime('%Y/%m/%d')} の販売個数 TOP3**")
+    day_rank = (
+        kb_df[kb_df["_date"] == target_date]
+        .groupby("_name")
+        .agg(sales=("_sales", "sum"), amount=("_amount", "sum"))
+        .reset_index()
+        .sort_values("sales", ascending=False)
+        .head(3)
+    )
+    _render_ranking_table(day_rank)
+
+
 def campaign_screen():
     # 💡 disabled（読み取り専用）入力欄の文字が薄くて読みにくいのを解消
     #    （kensakuの他画面と同じCSS対策：状態を問わず入力欄の文字色を強制する）
@@ -588,7 +680,7 @@ def campaign_screen():
     st.write("---")
 
     if _get_current_role() in MANAGER_ROLES:
-        tab1, tab2, tab3 = st.tabs(["📝 入力", "🔍 管理職チェック", "📋 過去データ修正"])
+        tab1, tab2, tab3, tab4 = st.tabs(["📝 入力", "🔍 管理職チェック", "📋 過去データ修正", "🏆 ランキング"])
         with tab1:
             customer = _customer_search_section()
             _entry_form_section(customer)
@@ -596,9 +688,15 @@ def campaign_screen():
             _manager_check_section()
         with tab3:
             _past_data_section()
+        with tab4:
+            _ranking_section()
     else:
-        customer = _customer_search_section()
-        _entry_form_section(customer)
+        tab1, tab2 = st.tabs(["📝 入力", "🏆 ランキング"])
+        with tab1:
+            customer = _customer_search_section()
+            _entry_form_section(customer)
+        with tab2:
+            _ranking_section()
 
     st.write("---")
     st.info("📊 集計（承認済みデータの件数・金額の一覧表示）は仕様検討中です。決まり次第、ここに追加します。")
