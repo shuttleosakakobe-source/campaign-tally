@@ -60,8 +60,12 @@ function doPost(e) {
 
 // ==========================================
 // キャンペーン集計表の自動更新
-// 「集計用」シート（承認済みデータ）から、拠点×カテゴリの実績表と
-// エリア別ランキングを計算し、「集計表」シートに書き込む。
+// 「集計用」シート（承認済みデータ）を担当者名ごとに集計し、
+// 「集計表」シートに手作業で用意された担当者一覧表（A列:担当者名,
+// B列:拠点, C列:エリア, D:きれいBOX販売数, E:きれいBOX金額,
+// F:セリング金額, G:増加金額, H:ケア金額）のC〜H列を埋める。
+// A列（担当者名）・B列（拠点）・見出し行はそのまま、C〜H列だけを
+// 名前で突き合わせて上書きする。
 // このスクリプトを集計用スプレッドシートに開いてから
 // 拡張機能＞Apps Scriptで開いた場合は、スプレッドシートのメニューバーに
 // 「📊 キャンペーン集計」→「集計を更新」が追加される（onOpen）。
@@ -72,8 +76,12 @@ function doPost(e) {
 
 var CAMPAIGN_RAW_SHEET_NAME = "集計用";
 var CAMPAIGN_SUMMARY_SHEET_NAME = "集計表";
-var CAMPAIGN_BRANCHES = ["大阪中央店", "大阪北店", "神戸中央店", "京都中央店"];
 var CAMPAIGN_CATEGORIES = ["きれいBOX", "セリング", "増加・切替", "ケアサービス"];
+
+// 集計表シート側（担当者一覧表）のレイアウト
+var PERSON_TABLE_FIRST_ROW = 3;    // 1〜2行目が見出し、3行目から担当者データ
+var PERSON_TABLE_COL_NAME = 1;     // A: 担当者名
+var PERSON_TABLE_COL_AREA = 3;     // C: エリア（D〜Hと合わせてここから6列分を書き込む）
 
 // 集計用シートの列（0始まり、views/campaign_view.py の full_row と対応させること）
 var COL_BRANCH = 2;
@@ -137,176 +145,80 @@ function computeCampaignRowTotals(row) {
 function updateCampaignSummary() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var rawSheet = ss.getSheetByName(CAMPAIGN_RAW_SHEET_NAME);
-  if (!rawSheet) {
-    SpreadsheetApp.getUi().alert("シート「" + CAMPAIGN_RAW_SHEET_NAME + "」が見つかりません。");
+  var summarySheet = ss.getSheetByName(CAMPAIGN_SUMMARY_SHEET_NAME);
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch (e) { ui = null; }
+
+  if (!rawSheet || !summarySheet) {
+    var msg = "シートが見つかりません（" + CAMPAIGN_RAW_SHEET_NAME + " / " + CAMPAIGN_SUMMARY_SHEET_NAME + "）。";
+    if (ui) ui.alert(msg);
     return;
   }
 
   var data = rawSheet.getDataRange().getValues();
   var rows = data.slice(1); // 見出し行を除く
 
-  var byBranchCategory = {};
-  CAMPAIGN_BRANCHES.forEach(function (b) {
-    byBranchCategory[b] = {};
-    CAMPAIGN_CATEGORIES.forEach(function (c) {
-      byBranchCategory[b][c] = { count: 0, amount: 0 };
-    });
-  });
-
-  var byArea = {}; // area -> {staff:{name:true}, amount, byCategory:{...}}
+  // 担当者名（申請者）ごとに承認済みデータを集計する
+  var byPerson = {}; // name -> {area, kbSales, kbAmount, selling, increase, care}
 
   rows.forEach(function (row) {
     if (String(row[COL_STATUS]).trim() !== "承認済み") return;
 
-    var branch = String(row[COL_BRANCH]).trim();
+    var name = String(row[COL_APPLICANT]).trim();
+    if (!name) return;
     var area = String(row[COL_AREA]).trim();
-    var applicant = String(row[COL_APPLICANT]).trim();
     var category = String(row[COL_CATEGORY]).trim();
     var totals = computeCampaignRowTotals(row);
 
-    if (byBranchCategory[branch] && byBranchCategory[branch][category]) {
-      byBranchCategory[branch][category].count += totals.count;
-      byBranchCategory[branch][category].amount += totals.amount;
+    if (!byPerson[name]) {
+      byPerson[name] = { area: "", kbSales: 0, kbAmount: 0, selling: 0, increase: 0, care: 0 };
     }
+    if (area) byPerson[name].area = area; // 最後に見つかったエリアを採用
 
-    if (area) {
-      if (!byArea[area]) {
-        byArea[area] = { staff: {}, amount: 0, byCategory: {} };
-        CAMPAIGN_CATEGORIES.forEach(function (c) { byArea[area].byCategory[c] = 0; });
-      }
-      if (applicant) byArea[area].staff[applicant] = true;
-      byArea[area].amount += totals.amount;
-      if (byArea[area].byCategory[category] !== undefined) {
-        byArea[area].byCategory[category] += totals.amount;
-      }
+    if (category === "きれいBOX") {
+      byPerson[name].kbSales += totals.count;
+      byPerson[name].kbAmount += totals.amount;
+    } else if (category === "セリング") {
+      byPerson[name].selling += totals.amount;
+    } else if (category === "増加・切替") {
+      byPerson[name].increase += totals.amount;
+    } else if (category === "ケアサービス") {
+      byPerson[name].care += totals.amount;
     }
   });
 
-  var summarySheet = ss.getSheetByName(CAMPAIGN_SUMMARY_SHEET_NAME);
-  var isNewSheet = false;
-  if (!summarySheet) {
-    summarySheet = ss.insertSheet(CAMPAIGN_SUMMARY_SHEET_NAME);
-    isNewSheet = true;
-  }
+  writeCampaignPersonTable_(summarySheet, byPerson);
 
-  writeCampaignBranchTable_(summarySheet, byBranchCategory, isNewSheet);
-  writeCampaignAreaRanking_(summarySheet, byArea);
-
-  var ui;
-  try { ui = SpreadsheetApp.getUi(); } catch (e) { ui = null; }
   if (ui) ui.alert("集計表を更新しました（" + new Date().toLocaleString() + "）");
 }
 
-// 拠点×カテゴリの実績表を書き込む。
-// 目標金額（B,E,H,K列）は手入力を想定しているため、シートを新規作成した
-// 最初の1回だけ0を書き込み、以後の実行では触らない（実績・達成率だけ更新する）。
-function writeCampaignBranchTable_(sheet, byBranchCategory, isNewSheet) {
-  sheet.getRange("A1").setValue("キャンペーン集計表（最終更新: " + new Date().toLocaleString() + "）");
+// 集計表シートに手作業で用意された担当者一覧（A列:担当者名, B列:拠点）に沿って、
+// C列（エリア）〜H列（ケア金額）を担当者名で突き合わせて書き込む。
+// A列・B列・見出し行には一切触れない。集計用シートに該当データが無い担当者は
+// エリア・各カテゴリとも空欄にする（0円は表示しない、他画面の金額表示と同じ扱い）。
+function writeCampaignPersonTable_(sheet, byPerson) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < PERSON_TABLE_FIRST_ROW) return; // 担当者データがまだ無い
 
-  var branchStartCols = { "大阪中央店": 2, "大阪北店": 5, "神戸中央店": 8, "京都中央店": 11 };
-  var zenkokuStartCol = 14;
-  var firstCatRow = 5, lastCatRow = 8, totalRow = 9;
+  var numRows = lastRow - PERSON_TABLE_FIRST_ROW + 1;
+  var names = sheet.getRange(PERSON_TABLE_FIRST_ROW, PERSON_TABLE_COL_NAME, numRows, 1).getValues();
 
-  if (isNewSheet) {
-    CAMPAIGN_BRANCHES.forEach(function (b) {
-      sheet.getRange(3, branchStartCols[b]).setValue(b);
-    });
-    sheet.getRange(3, zenkokuStartCol).setValue("全体");
-
-    var subHeaders = ["目標金額", "実績金額", "達成率"];
-    [2, 5, 8, 11, 14].forEach(function (col) {
-      sheet.getRange(4, col, 1, 3).setValues([subHeaders]);
-    });
-    sheet.getRange("A4").setValue("カテゴリ");
-
-    for (var r = 0; r < CAMPAIGN_CATEGORIES.length; r++) {
-      sheet.getRange(firstCatRow + r, 1).setValue(CAMPAIGN_CATEGORIES[r]);
-      [2, 5, 8, 11].forEach(function (col) {
-        sheet.getRange(firstCatRow + r, col).setValue(0); // 目標金額の初期値（手入力で書き換える）
-      });
-    }
-    sheet.getRange(totalRow, 1).setValue("合計");
-    sheet.getRange(3, 1, 1, 15).setFontWeight("bold");
-    sheet.getRange(4, 1, 1, 15).setFontWeight("bold");
-  }
-
-  CAMPAIGN_BRANCHES.forEach(function (b) {
-    var startCol = branchStartCols[b];
-    for (var i = 0; i < CAMPAIGN_CATEGORIES.length; i++) {
-      var cat = CAMPAIGN_CATEGORIES[i];
-      var rowNum = firstCatRow + i;
-      var amount = byBranchCategory[b][cat].amount;
-      var target = Number(sheet.getRange(rowNum, startCol).getValue()) || 0;
-      sheet.getRange(rowNum, startCol + 1).setValue(amount);
-      sheet.getRange(rowNum, startCol + 2).setValue(target ? (amount / target) : "");
-    }
+  var output = names.map(function (r) {
+    var name = String(r[0]).trim();
+    if (!name) return ["", "", "", "", "", ""];
+    var p = byPerson[name];
+    if (!p) return ["", "", "", "", "", ""];
+    return [
+      p.area,
+      p.kbSales || "",
+      p.kbAmount || "",
+      p.selling || "",
+      p.increase || "",
+      p.care || "",
+    ];
   });
 
-  // 合計行（目標は各カテゴリ目標のSUM、実績・達成率も再計算）
-  [2, 5, 8, 11].forEach(function (startCol) {
-    var targetSum = 0, actualSum = 0;
-    for (var r2 = firstCatRow; r2 <= lastCatRow; r2++) {
-      targetSum += Number(sheet.getRange(r2, startCol).getValue()) || 0;
-      actualSum += Number(sheet.getRange(r2, startCol + 1).getValue()) || 0;
-    }
-    sheet.getRange(totalRow, startCol).setValue(targetSum);
-    sheet.getRange(totalRow, startCol + 1).setValue(actualSum);
-    sheet.getRange(totalRow, startCol + 2).setValue(targetSum ? (actualSum / targetSum) : "");
-  });
-
-  // 全体列（拠点4つの合算）
-  for (var r3 = firstCatRow; r3 <= totalRow; r3++) {
-    var targetTotal = 0, actualTotal = 0;
-    [2, 5, 8, 11].forEach(function (startCol) {
-      targetTotal += Number(sheet.getRange(r3, startCol).getValue()) || 0;
-      actualTotal += Number(sheet.getRange(r3, startCol + 1).getValue()) || 0;
-    });
-    sheet.getRange(r3, zenkokuStartCol).setValue(targetTotal);
-    sheet.getRange(r3, zenkokuStartCol + 1).setValue(actualTotal);
-    sheet.getRange(r3, zenkokuStartCol + 2).setValue(targetTotal ? (actualTotal / targetTotal) : "");
-  }
-}
-
-// エリア別ランキングを書き込む（承認済み実績・1人あたり平均金額の降順）。
-// こちらは目標のような手入力項目が無いため、毎回まるごと書き直す。
-function writeCampaignAreaRanking_(sheet, byArea) {
-  var titleRow = 12, headerRow = 13, firstDataRow = 14;
-  sheet.getRange(titleRow, 1).setValue("エリア別ランキング（承認済み実績・1人あたり平均金額の降順）");
-  sheet.getRange(titleRow, 1).setFontWeight("bold");
-
-  var headers = ["エリア", "人数", "きれいBOX金額", "セリング金額", "増加金額", "ケア金額", "合計金額", "1人あたり平均", "順位"];
-  sheet.getRange(headerRow, 1, 1, headers.length).setValues([headers]);
-  sheet.getRange(headerRow, 1, 1, headers.length).setFontWeight("bold");
-
-  var areaList = Object.keys(byArea).map(function (area) {
-    var info = byArea[area];
-    var staffCount = Object.keys(info.staff).length;
-    var avg = staffCount ? info.amount / staffCount : 0;
-    return {
-      area: area,
-      staffCount: staffCount,
-      kirei: info.byCategory["きれいBOX"] || 0,
-      selling: info.byCategory["セリング"] || 0,
-      increase: info.byCategory["増加・切替"] || 0,
-      care: info.byCategory["ケアサービス"] || 0,
-      total: info.amount,
-      avg: avg
-    };
-  });
-
-  areaList.sort(function (a, b) { return b.avg - a.avg; });
-
-  // 既存の古いランキング行をクリアしてから書き直す（最大50エリア分の余裕）
-  var clearRows = 50;
-  sheet.getRange(firstDataRow, 1, clearRows, headers.length).clearContent();
-
-  var output = areaList.map(function (a, idx) {
-    return [a.area, a.staffCount, a.kirei, a.selling, a.increase, a.care, a.total, a.avg, idx + 1];
-  });
-
-  if (output.length > 0) {
-    sheet.getRange(firstDataRow, 1, output.length, headers.length).setValues(output);
-  }
+  sheet.getRange(PERSON_TABLE_FIRST_ROW, PERSON_TABLE_COL_AREA, output.length, 6).setValues(output);
 }
 
 // メニューが表示されない（スクリプトがスプレッドシートに紐付いていない）場合はこれを
