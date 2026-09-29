@@ -45,45 +45,76 @@ else:
         if os.path.exists("1.png"):
             st.image("1.png", use_container_width=True)
 
-        u_email = st.text_input("メールアドレス").strip()
-        u_pass = st.text_input("パスワード", type="password").strip()
+        pending = st.session_state.get("pending_login")
 
-        if st.button("ログイン", type="primary", use_container_width=True):
-            raw = load_sheet_data(gid="0")
-            if raw and len(raw) > 1:
-                # 行ごとに判定 (A列: 0[メール], B列: 1[拠点], C列: 2[名前], D列: 3[パスワード], F列: 5[権限])
-                user_found = None
-                for row in raw[1:]:
-                    if len(row) >= 6:
-                        email_val = str(row[0]).strip()  # A列
-                        pass_val = str(row[3]).strip()   # D列
+        if pending:
+            # 💡 同じメールアドレス・パスワードの行が複数あり、拠点（B列）が2つ以上ある場合は
+            #    ログイン確定前に、どの拠点として使うかを選ばせる
+            #    （拠点によって参照する顧客マスターのシートが変わるため）。
+            st.info(f"👤 {pending['name']} さん、担当する拠点を選択してください。")
+            chosen_branch = st.selectbox("拠点", pending["branches"], key="login_branch_choice")
+            if st.button("この拠点で開始", type="primary", use_container_width=True):
+                st.session_state.user_name = pending["name"]
+                st.session_state.user_role = pending["role"]
+                st.session_state.user_code = pending["email"]
+                st.session_state.user_branch = chosen_branch
+                st.session_state.login_status = True
+                st.session_state.logout_requested = False
+                st.session_state.pop("pending_login", None)
 
-                        if email_val.lower() == u_email.lower() and pass_val == u_pass:
-                            user_found = {
-                                "email": email_val,
-                                "branch": str(row[1]).strip(),  # B列
-                                "name": str(row[2]).strip(),  # C列
-                                "role": str(row[5]).strip()   # F列
+                set_login_storage(
+                    st.session_state.user_name, "", False,
+                    st.session_state.user_role, st.session_state.user_code
+                )
+                st.rerun()
+        else:
+            u_email = st.text_input("メールアドレス").strip()
+            u_pass = st.text_input("パスワード", type="password").strip()
+
+            if st.button("ログイン", type="primary", use_container_width=True):
+                raw = load_sheet_data(gid="0")
+                if raw and len(raw) > 1:
+                    # 行ごとに判定 (A列: 0[メール], B列: 1[拠点], C列: 2[名前], D列: 3[パスワード], F列: 5[権限])
+                    # 同じメール・パスワードの行が複数あってもよい（拠点違いで複数行に分けている場合）ため、
+                    # 一致した行すべてから拠点を集める。
+                    matched_rows = []
+                    for row in raw[1:]:
+                        if len(row) >= 6:
+                            email_val = str(row[0]).strip()  # A列
+                            pass_val = str(row[3]).strip()   # D列
+                            if email_val.lower() == u_email.lower() and pass_val == u_pass:
+                                matched_rows.append({
+                                    "email": email_val,
+                                    "branch": str(row[1]).strip(),  # B列
+                                    "name": str(row[2]).strip(),    # C列
+                                    "role": str(row[5]).strip()     # F列
+                                })
+
+                    if matched_rows:
+                        branches = list(dict.fromkeys(m["branch"] for m in matched_rows if m["branch"]))
+                        first = matched_rows[0]
+
+                        if len(branches) <= 1:
+                            st.session_state.user_name = first["name"]
+                            st.session_state.user_role = first["role"]
+                            st.session_state.user_code = first["email"]
+                            st.session_state.user_branch = branches[0] if branches else ""
+                            st.session_state.login_status = True
+                            st.session_state.logout_requested = False
+
+                            set_login_storage(
+                                st.session_state.user_name, "", False,
+                                st.session_state.user_role, st.session_state.user_code
+                            )
+                        else:
+                            st.session_state.pending_login = {
+                                "email": first["email"],
+                                "name": first["name"],
+                                "role": first["role"],
+                                "branches": branches,
                             }
-                            break
-
-                if user_found:
-                    st.session_state.user_name = user_found["name"]
-                    st.session_state.user_role = user_found["role"]
-                    st.session_state.user_code = user_found["email"]
-                    st.session_state.user_branch = user_found["branch"]
-                    st.session_state.login_status = True
-                    st.session_state.logout_requested = False
-
-                    set_login_storage(
-                        st.session_state.user_name,
-                        "",
-                        False,
-                        st.session_state.user_role,
-                        st.session_state.user_code
-                    )
-                    st.rerun()
+                        st.rerun()
+                    else:
+                        st.error("認証失敗: メールアドレスまたはパスワードが正しくありません")
                 else:
-                    st.error("認証失敗: メールアドレスまたはパスワードが正しくありません")
-            else:
-                st.error("マスターデータの読み込みに失敗しました。シートの共有設定（アクセス権限）を確認してください。")
+                    st.error("マスターデータの読み込みに失敗しました。シートの共有設定（アクセス権限）を確認してください。")
