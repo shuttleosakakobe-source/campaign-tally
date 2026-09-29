@@ -350,6 +350,38 @@ def _update_status(row, row_id, status, comment):
 
 
 def campaign_screen():
+    # 💡 disabled（読み取り専用）入力欄の文字が薄くて読みにくいのを解消
+    #    （kensakuの他画面と同じCSS対策：状態を問わず入力欄の文字色を強制する）
+    st.markdown("""
+        <style>
+        div[data-testid="stTextInput"] input,
+        div[data-testid="stTextArea"] textarea,
+        div[data-testid="stNumberInput"] input {
+            -webkit-text-fill-color: #31333F !important;
+            color: #31333F !important;
+            opacity: 1 !important;
+        }
+        input:disabled, input:read-only, input[aria-disabled="true"],
+        textarea:disabled, textarea:read-only, textarea[aria-disabled="true"] {
+            -webkit-text-fill-color: #31333F !important;
+            color: #31333F !important;
+            opacity: 1 !important;
+        }
+        div[data-testid="stTextInput"], div[data-testid="stTextArea"], div[data-testid="stSelectbox"],
+        div[data-testid="stTextInput"] label, div[data-testid="stTextArea"] label, div[data-testid="stSelectbox"] label,
+        div[data-testid="stWidgetLabel"], div[data-testid="stWidgetLabel"] p, div[data-testid="stWidgetLabel"] label {
+            opacity: 1 !important;
+            color: #31333F !important;
+            -webkit-text-fill-color: #31333F !important;
+        }
+        div[data-testid="stSelectbox"] div[aria-disabled="true"],
+        div[data-testid="stSelectbox"] div[aria-disabled="true"] * {
+            opacity: 1 !important;
+            color: #31333F !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     st.markdown("#### 📊 キャンペーン集計")
     st.write("---")
 
