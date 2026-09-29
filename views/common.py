@@ -17,6 +17,7 @@ CUSTOMER_MASTER_CSV = "https://docs.google.com/spreadsheets/d/1AkMb1J2m3VZAIyMCK
 #    target_sheet_url、追加する行データ full_row を渡す）。
 GAS_URL = ""
 CAMPAIGN_SHEET_URL = "https://docs.google.com/spreadsheets/d/1P_T6ZylVbu9FBK5HureFFMPz4wTujJOfB1FUgI8gaO4/edit?gid=0#gid=0"
+CAMPAIGN_SHEET_CSV = "https://docs.google.com/spreadsheets/d/1P_T6ZylVbu9FBK5HureFFMPz4wTujJOfB1FUgI8gaO4/gviz/tq?tqx=out:csv&gid=0"
 
 JST = timezone(timedelta(hours=+9), 'JST')
 

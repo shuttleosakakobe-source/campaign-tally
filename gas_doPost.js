@@ -35,6 +35,19 @@ function doPost(e) {
       sheet.appendRow(data.full_row);
       return ContentService.createTextOutput(JSON.stringify({"status": "success"}))
         .setMimeType(ContentService.MimeType.JSON);
+
+    // ==========================================
+    // 管理職チェック（承認／差戻し）：該当行を丸ごと updated_row で上書きする
+    // ==========================================
+    } else if (action === "UPDATE_CAMPAIGN_STATUS") {
+      var targetUrl = data.target_sheet_url;
+      var sheet = getSheetFromUrl(targetUrl);
+      var rowIndex = data.row_index;
+      var updatedRow = data.updated_row;
+      var range = sheet.getRange(rowIndex, 1, 1, updatedRow.length);
+      range.setValues([updatedRow]);
+      return ContentService.createTextOutput(JSON.stringify({"status": "success"}))
+        .setMimeType(ContentService.MimeType.JSON);
     }
 
     return ContentService.createTextOutput(JSON.stringify({"status": "error", "message": "未定義のアクション: " + action}))
