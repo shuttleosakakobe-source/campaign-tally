@@ -16,12 +16,10 @@ BRANCH_CUSTOMER_CSV = {
     "大阪北店": "https://docs.google.com/spreadsheets/d/1AkMb1J2m3VZAIyMCKmr3T3E8-kJB0BDDdWQJuEn7YGc/gviz/tq?tqx=out:csv&gid=734014298",
 }
 
-# 💡 キャンペーン入力データの保存先。まだ専用のスプレッドシート・GAS Web Appが
-#    用意できていないため、いずれも空文字のプレースホルダーにしてある。
-#    用意でき次第ここに設定すればそのまま保存できるようになる
-#    （kensakuのGAS_URL／TARGET_SHEET_URLと同じ仕組み：doPostに action と
-#    target_sheet_url、追加する行データ full_row を渡す）。
-GAS_URL = ""
+# キャンペーン入力データの保存先。
+# （kensakuのGAS_URL／TARGET_SHEET_URLと同じ仕組み：doPostに action と
+#  target_sheet_url、追加する行データ full_row を渡す）。
+GAS_URL = "https://script.google.com/macros/s/AKfycbwIaXIXAc38xwezFvMv6B36VFIqkvoYG3iSabfivztodbqD8ETyZrLPnaRCKRct-PnLOg/exec"
 CAMPAIGN_SHEET_URL = "https://docs.google.com/spreadsheets/d/1P_T6ZylVbu9FBK5HureFFMPz4wTujJOfB1FUgI8gaO4/edit?gid=0#gid=0"
 CAMPAIGN_SHEET_CSV = "https://docs.google.com/spreadsheets/d/1P_T6ZylVbu9FBK5HureFFMPz4wTujJOfB1FUgI8gaO4/gviz/tq?tqx=out:csv&gid=0"
 
