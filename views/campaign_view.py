@@ -18,16 +18,16 @@ INCREASE_ROWS = 5  # 増加・切替＞増加の入力行数
 #    （kensakuの各モードと同じ考え方）。セリングと増加・切替＞増加は、それぞれ
 #    最大5行（商品5件分）まで入力できるようにしている。
 # 0 タイムスタンプ, 1 申請者, 2 顧客コード, 3 顧客名, 4 加盟店名, 5 加盟店コード, 6 カテゴリ,
-# 7 きれいBOX 販売数, 8 単価, 9 個数,
-# 10〜29 セリング 商品①〜⑤（1商品あたり4列＝商品記号/販売数/単価/個数）,
-# 30〜49 増加 商品①〜⑤（1商品あたり4列＝商品記号/サイクル/単価/数量）,
-# 50 切替 変更前商品, 51 変更前単価, 52 変更前数量, 53 変更後商品, 54 変更後単価, 55 変更後数量,
-# 56 ケア種別, 57 実施日, 58 金額,
-# 59 ステータス（申請中／承認済み／差戻し）, 60 承認者, 61 承認日時, 62 差戻し理由・コメント
-STATUS_COL = 59
-APPROVER_COL = 60
-APPROVE_TIME_COL = 61
-COMMENT_COL = 62
+# 7 きれいBOX 販売数, 8 単価,
+# 9〜23 セリング 商品①〜⑤（1商品あたり3列＝商品記号/販売数/単価）,
+# 24〜43 増加 商品①〜⑤（1商品あたり4列＝商品記号/サイクル/単価/数量）,
+# 44 切替 変更前商品, 45 変更前単価, 46 変更前数量, 47 変更後商品, 48 変更後単価, 49 変更後数量,
+# 50 ケア種別, 51 サービス内容, 52 実施日, 53 金額,
+# 54 ステータス（申請中／承認済み／差戻し）, 55 承認者, 56 承認日時, 57 差戻し理由・コメント
+STATUS_COL = 54
+APPROVER_COL = 55
+APPROVE_TIME_COL = 56
+COMMENT_COL = 57
 
 
 def _customer_search_section():
@@ -71,29 +71,27 @@ def _entry_form_section(customer):
     category = st.radio("カテゴリ", CATEGORIES, horizontal=True, key="camp_category")
 
     # カテゴリ切り替えに応じて空の値を持たせておく（未入力分は空欄のまま送信する）
-    sales_count = unit_price = count = ""
-    selling_items = [("", "", "", "")] * SELLING_ROWS
+    sales_count = unit_price = ""
+    selling_items = [("", "", "")] * SELLING_ROWS
     increase_items = [("", "", "", "")] * INCREASE_ROWS
     product_before = price_before = qty_before = ""
     product_after = price_after = qty_after = ""
-    care_type = care_date_str = care_amount = ""
+    care_type = care_content = care_date_str = care_amount = ""
 
     if category == "きれいBOX":
-        c1, c2, c3 = st.columns(3)
+        c1, c2 = st.columns(2)
         sales_count = c1.text_input("販売数", key="camp_kb_sales")
         unit_price = c2.text_input("単価", key="camp_kb_price")
-        count = c3.text_input("個数", key="camp_kb_count")
 
     elif category == "セリング":
         rows = []
         for i in range(SELLING_ROWS):
             st.caption(f"商品 {i + 1}")
-            c1, c2, c3, c4 = st.columns(4)
+            c1, c2, c3 = st.columns(3)
             code = c1.text_input("商品記号", key=f"camp_sl_code_{i}")
             sales = c2.text_input("販売数", key=f"camp_sl_sales_{i}")
             price = c3.text_input("単価", key=f"camp_sl_price_{i}")
-            cnt = c4.text_input("個数", key=f"camp_sl_count_{i}")
-            rows.append((code, sales, price, cnt))
+            rows.append((code, sales, price))
         selling_items = rows
 
     elif category == "増加・切替":
@@ -122,11 +120,12 @@ def _entry_form_section(customer):
             qty_after = a3.text_input("数量", key="camp_ic_after_qty")
 
     elif category == "ケアサービス":
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         care_type = c1.selectbox("種別", CARE_TYPES, key="camp_care_type")
-        care_date = c2.date_input("実施日", value=date.today(), key="camp_care_date")
+        care_content = c2.text_input("サービス内容", key="camp_care_content")
+        care_date = c3.date_input("実施日", value=date.today(), key="camp_care_date")
         care_date_str = care_date.strftime("%Y/%m/%d") if care_date else ""
-        care_amount = c3.text_input("金額", key="camp_care_amount")
+        care_amount = c4.text_input("金額", key="camp_care_amount")
 
     if st.button("✅ 登録する", type="primary", use_container_width=True):
         if not customer:
@@ -142,11 +141,11 @@ def _entry_form_section(customer):
             customer["cust_code"], customer["cust_name"],
             customer["store_name"], customer["store_code"],
             category,
-            sales_count, unit_price, count,
+            sales_count, unit_price,
         ] + selling_flat + increase_flat + [
             product_before, price_before, qty_before,
             product_after, price_after, qty_after,
-            care_type, care_date_str, care_amount,
+            care_type, care_content, care_date_str, care_amount,
             "申請中", "", "", "",
         ]
         res = post_to_gas({
@@ -176,28 +175,26 @@ def _render_entry_readonly(row, key_prefix):
     st.text_input("カテゴリ", value=category, disabled=True, key=f"{key_prefix}_category")
 
     if category == "きれいBOX":
-        c1, c2, c3 = st.columns(3)
+        c1, c2 = st.columns(2)
         c1.text_input("販売数", value=_val(row, 7), disabled=True, key=f"{key_prefix}_kb_sales")
         c2.text_input("単価", value=_val(row, 8), disabled=True, key=f"{key_prefix}_kb_price")
-        c3.text_input("個数", value=_val(row, 9), disabled=True, key=f"{key_prefix}_kb_count")
 
     elif category == "セリング":
         for i in range(SELLING_ROWS):
-            base = 10 + i * 4
+            base = 9 + i * 3
             code = _val(row, base)
             if not code.strip():
                 continue
-            c1, c2, c3, c4 = st.columns(4)
+            c1, c2, c3 = st.columns(3)
             c1.text_input(f"商品記号 {i+1}", value=code, disabled=True, key=f"{key_prefix}_sl_code_{i}")
             c2.text_input(f"販売数 {i+1}", value=_val(row, base + 1), disabled=True, key=f"{key_prefix}_sl_sales_{i}")
             c3.text_input(f"単価 {i+1}", value=_val(row, base + 2), disabled=True, key=f"{key_prefix}_sl_price_{i}")
-            c4.text_input(f"個数 {i+1}", value=_val(row, base + 3), disabled=True, key=f"{key_prefix}_sl_count_{i}")
 
     elif category == "増加・切替":
-        has_increase = any(_val(row, 30 + i * 4).strip() for i in range(INCREASE_ROWS))
+        has_increase = any(_val(row, 24 + i * 4).strip() for i in range(INCREASE_ROWS))
         if has_increase:
             for i in range(INCREASE_ROWS):
-                base = 30 + i * 4
+                base = 24 + i * 4
                 code = _val(row, base)
                 if not code.strip():
                     continue
@@ -209,20 +206,21 @@ def _render_entry_readonly(row, key_prefix):
         else:
             st.caption("変更前")
             b1, b2, b3 = st.columns(3)
-            b1.text_input("変更前商品", value=_val(row, 50), disabled=True, key=f"{key_prefix}_before_code")
-            b2.text_input("単価", value=_val(row, 51), disabled=True, key=f"{key_prefix}_before_price")
-            b3.text_input("数量", value=_val(row, 52), disabled=True, key=f"{key_prefix}_before_qty")
+            b1.text_input("変更前商品", value=_val(row, 44), disabled=True, key=f"{key_prefix}_before_code")
+            b2.text_input("単価", value=_val(row, 45), disabled=True, key=f"{key_prefix}_before_price")
+            b3.text_input("数量", value=_val(row, 46), disabled=True, key=f"{key_prefix}_before_qty")
             st.caption("変更後")
             a1, a2, a3 = st.columns(3)
-            a1.text_input("変更後商品", value=_val(row, 53), disabled=True, key=f"{key_prefix}_after_code")
-            a2.text_input("単価", value=_val(row, 54), disabled=True, key=f"{key_prefix}_after_price")
-            a3.text_input("数量", value=_val(row, 55), disabled=True, key=f"{key_prefix}_after_qty")
+            a1.text_input("変更後商品", value=_val(row, 47), disabled=True, key=f"{key_prefix}_after_code")
+            a2.text_input("単価", value=_val(row, 48), disabled=True, key=f"{key_prefix}_after_price")
+            a3.text_input("数量", value=_val(row, 49), disabled=True, key=f"{key_prefix}_after_qty")
 
     elif category == "ケアサービス":
-        c1, c2, c3 = st.columns(3)
-        c1.text_input("種別", value=_val(row, 56), disabled=True, key=f"{key_prefix}_care_type")
-        c2.text_input("実施日", value=_val(row, 57), disabled=True, key=f"{key_prefix}_care_date")
-        c3.text_input("金額", value=_val(row, 58), disabled=True, key=f"{key_prefix}_care_amount")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.text_input("種別", value=_val(row, 50), disabled=True, key=f"{key_prefix}_care_type")
+        c2.text_input("サービス内容", value=_val(row, 51), disabled=True, key=f"{key_prefix}_care_content")
+        c3.text_input("実施日", value=_val(row, 52), disabled=True, key=f"{key_prefix}_care_date")
+        c4.text_input("金額", value=_val(row, 53), disabled=True, key=f"{key_prefix}_care_amount")
 
 
 def _manager_check_section():
