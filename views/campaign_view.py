@@ -1,15 +1,24 @@
 """キャンペーン集計アプリのメイン画面。
-現時点では「顧客コード検索→顧客名/加盟店/加盟店コードの自動表示」までを実装している。
-集計そのもの（何を・どう数えるか）はまだ仕様検討中のため、下部はプレースホルダー。"""
+顧客コード検索と、キャンペーン実績の入力フォームを実装している。
+集計（入力されたデータの件数・金額などの集計表示）はまだ仕様検討中のため未実装。"""
 import streamlit as st
+from datetime import date, datetime
 
-from views.common import lookup_customer
+from views.common import lookup_customer, post_to_gas, CAMPAIGN_SHEET_URL, JST
+
+CATEGORIES = ["きれいBOX", "セリング", "増加・切替", "ケアサービス"]
+CARE_TYPES = ["SM", "TMX", "MM", "その他"]
+
+# 💡 保存先シートの列（0始まり）。カテゴリごとに使うフィールドが異なるため、
+#    全カテゴリ分の列を持つ1枚のシートに、該当しない列は空欄のまま書き込む
+#    （kensakuの各モードと同じ考え方）。
+# 0 タイムスタンプ, 1 申請者, 2 顧客コード, 3 顧客名, 4 加盟店名, 5 加盟店コード, 6 カテゴリ,
+# 7 販売数, 8 単価, 9 個数, 10 商品記号, 11 数量,
+# 12 変更前商品, 13 変更前単価, 14 変更前数量, 15 変更後商品, 16 変更後単価, 17 変更後数量,
+# 18 ケア種別, 19 実施日, 20 金額
 
 
-def campaign_screen():
-    st.markdown("#### 📊 キャンペーン集計")
-    st.write("---")
-
+def _customer_search_section():
     st.write("**🔍 顧客コード検索**")
     col_input, col_btn = st.columns([4, 1])
     cust_code = col_input.text_input("顧客コード", key="camp_cust_code")
@@ -35,6 +44,95 @@ def campaign_screen():
         c2.text_input("顧客名", value=customer["cust_name"], disabled=True, key="camp_v_cname")
         c3.text_input("加盟店名", value=customer["store_name"], disabled=True, key="camp_v_sname")
         c4.text_input("加盟店コード", value=customer["store_code"], disabled=True, key="camp_v_scode")
+    return customer
+
+
+def _entry_form_section(customer):
+    st.write("---")
+    st.write("**📝 キャンペーン実績入力**")
+
+    category = st.radio("カテゴリ", CATEGORIES, horizontal=True, key="camp_category")
+
+    # カテゴリ切り替えに応じて空の値を持たせておく（未入力分は空欄のまま送信する）
+    sales_count = unit_price = count = ""
+    product_code = quantity = ""
+    product_before = price_before = qty_before = ""
+    product_after = price_after = qty_after = ""
+    care_type = care_date_str = care_amount = ""
+
+    if category == "きれいBOX":
+        c1, c2, c3 = st.columns(3)
+        sales_count = c1.text_input("販売数", key="camp_kb_sales")
+        unit_price = c2.text_input("単価", key="camp_kb_price")
+        count = c3.text_input("個数", key="camp_kb_count")
+
+    elif category == "セリング":
+        c1, c2, c3, c4 = st.columns(4)
+        product_code = c1.text_input("商品記号", key="camp_sl_code")
+        sales_count = c2.text_input("販売数", key="camp_sl_sales")
+        unit_price = c3.text_input("単価", key="camp_sl_price")
+        count = c4.text_input("個数", key="camp_sl_count")
+
+    elif category == "増加・切替":
+        sub_category = st.radio("増加 / 切替", ["増加", "切替"], horizontal=True, key="camp_ic_sub")
+        if sub_category == "増加":
+            c1, c2, c3 = st.columns(3)
+            product_code = c1.text_input("商品記号", key="camp_ic_code")
+            unit_price = c2.text_input("単価", key="camp_ic_price")
+            quantity = c3.text_input("数量", key="camp_ic_qty")
+        else:
+            st.caption("変更前")
+            b1, b2, b3 = st.columns(3)
+            product_before = b1.text_input("変更前商品", key="camp_ic_before_code")
+            price_before = b2.text_input("単価", key="camp_ic_before_price")
+            qty_before = b3.text_input("数量", key="camp_ic_before_qty")
+            st.caption("変更後")
+            a1, a2, a3 = st.columns(3)
+            product_after = a1.text_input("変更後商品", key="camp_ic_after_code")
+            price_after = a2.text_input("単価", key="camp_ic_after_price")
+            qty_after = a3.text_input("数量", key="camp_ic_after_qty")
+
+    elif category == "ケアサービス":
+        c1, c2, c3 = st.columns(3)
+        care_type = c1.selectbox("種別", CARE_TYPES, key="camp_care_type")
+        care_date = c2.date_input("実施日", value=date.today(), key="camp_care_date")
+        care_date_str = care_date.strftime("%Y/%m/%d") if care_date else ""
+        care_amount = c3.text_input("金額", key="camp_care_amount")
+
+    if st.button("✅ 登録する", type="primary", use_container_width=True):
+        if not customer:
+            st.error("⚠️ 先に顧客コードを検索してください。")
+            return
+
+        full_row = [
+            datetime.now(JST).strftime("%Y/%m/%d %H:%M:%S"),
+            st.session_state.get("user_name", ""),
+            customer["cust_code"], customer["cust_name"],
+            customer["store_name"], customer["store_code"],
+            category,
+            sales_count, unit_price, count,
+            product_code, quantity,
+            product_before, price_before, qty_before,
+            product_after, price_after, qty_after,
+            care_type, care_date_str, care_amount,
+        ]
+        res = post_to_gas({
+            "action": "SUBMIT_CAMPAIGN_ENTRY",
+            "target_sheet_url": CAMPAIGN_SHEET_URL,
+            "full_row": full_row,
+        })
+        if res.get("status") == "success":
+            st.success("✅ 登録しました。")
+        else:
+            st.error(f"登録に失敗しました: {res.get('message')}")
+
+
+def campaign_screen():
+    st.markdown("#### 📊 キャンペーン集計")
+    st.write("---")
+
+    customer = _customer_search_section()
+    _entry_form_section(customer)
 
     st.write("---")
-    st.info("📊 集計機能は仕様検討中です。どのデータを何件集計するか決まり次第、ここに追加します。")
+    st.info("📊 集計（件数・金額の一覧表示）は仕様検討中です。入力されたデータをどう集計・表示するか決まり次第、ここに追加します。")

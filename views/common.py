@@ -2,10 +2,34 @@
 顧客マスターはkensaku（メンテナンス依頼アプリ）と同じスプレッドシートを参照する。"""
 import streamlit as st
 import pandas as pd
+import requests
+import json
+from datetime import timezone, timedelta, datetime
 
 # 顧客マスター（A=加盟店名, B=顧客コード, C=顧客名, D=(未使用), E=加盟店コード）
 # kensaku（views/maint_common.py）のCUSTOMER_MASTER_CSVと同一シート・同一列構成。
 CUSTOMER_MASTER_CSV = "https://docs.google.com/spreadsheets/d/1AkMb1J2m3VZAIyMCKmr3T3E8-kJB0BDDdWQJuEn7YGc/gviz/tq?tqx=out:csv&gid=127347205"
+
+# 💡 キャンペーン入力データの保存先。まだ専用のスプレッドシート・GAS Web Appが
+#    用意できていないため、いずれも空文字のプレースホルダーにしてある。
+#    用意でき次第ここに設定すればそのまま保存できるようになる
+#    （kensakuのGAS_URL／TARGET_SHEET_URLと同じ仕組み：doPostに action と
+#    target_sheet_url、追加する行データ full_row を渡す）。
+GAS_URL = ""
+CAMPAIGN_SHEET_URL = ""
+
+JST = timezone(timedelta(hours=+9), 'JST')
+
+
+def post_to_gas(payload):
+    if not GAS_URL:
+        return {"status": "error", "message": "保存先が未設定です（GAS_URLが空）。管理者に設定を依頼してください。"}
+    headers = {"Content-Type": "application/json"}
+    try:
+        response = requests.post(GAS_URL, data=json.dumps(payload), headers=headers, timeout=30)
+        return response.json()
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 @st.cache_data(ttl=15)
