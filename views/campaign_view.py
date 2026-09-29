@@ -29,6 +29,19 @@ APPROVER_COL = 56
 APPROVE_TIME_COL = 57
 COMMENT_COL = 58
 
+# 💡 管理職チェックタブを表示できる権限（ユーザーマスターF列、kensakuと同じ値を流用）。
+#    権限0＝全権限（全拠点の申請を確認可）、権限1＝拠点の管理職（自分の拠点の申請のみ確認可）。
+#    それ以外の権限は入力タブのみで、管理職チェックタブ自体が表示されない。
+MANAGER_ROLES = {"0", "1"}
+ALL_BRANCH_ROLES = {"0"}
+
+
+def _get_current_role():
+    role = str(st.session_state.get("user_role", "")).strip()
+    if role.endswith(".0"):
+        role = role[:-2]
+    return role
+
 
 def _to_float(v):
     try:
@@ -277,6 +290,12 @@ def _manager_check_section():
         return
 
     pending_df = df[df.iloc[:, STATUS_COL].astype(str).str.strip() == "申請中"]
+
+    # 💡 権限0（全権限）以外は、自分の拠点（C列）の申請だけを確認・承認できる。
+    if _get_current_role() not in ALL_BRANCH_ROLES:
+        my_branch = str(st.session_state.get("user_branch", "")).strip()
+        pending_df = pending_df[pending_df.iloc[:, 2].astype(str).str.strip() == my_branch]
+
     if pending_df.empty:
         st.info("現在、承認待ちの申請はありません。")
         return
@@ -334,14 +353,16 @@ def campaign_screen():
     st.markdown("#### 📊 キャンペーン集計")
     st.write("---")
 
-    tab1, tab2 = st.tabs(["📝 入力", "🔍 管理職チェック"])
-
-    with tab1:
+    if _get_current_role() in MANAGER_ROLES:
+        tab1, tab2 = st.tabs(["📝 入力", "🔍 管理職チェック"])
+        with tab1:
+            customer = _customer_search_section()
+            _entry_form_section(customer)
+        with tab2:
+            _manager_check_section()
+    else:
         customer = _customer_search_section()
         _entry_form_section(customer)
-
-    with tab2:
-        _manager_check_section()
 
     st.write("---")
     st.info("📊 集計（承認済みデータの件数・金額の一覧表示）は仕様検討中です。決まり次第、ここに追加します。")
