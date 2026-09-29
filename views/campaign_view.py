@@ -1,5 +1,6 @@
 """キャンペーン集計アプリのメイン画面。
-顧客コード検索、キャンペーン実績の入力フォーム、管理職チェック（承認・差戻し）を実装している。
+顧客コード検索、キャンペーン実績の入力フォーム、管理職チェック（承認・破棄）、
+過去データの修正・破棄を実装している。
 集計（承認済みデータの件数・金額などの集計表示）はまだ仕様検討中のため未実装。"""
 import streamlit as st
 import pandas as pd
@@ -37,7 +38,7 @@ _ENTRY_FORM_KEYS = (
 # 26〜45 増加 商品①〜⑤（1商品あたり4列＝商品記号/サイクル/単価/数量）,
 # 46 切替 変更前商品, 47 変更前単価, 48 変更前数量, 49 変更後商品, 50 変更後単価, 51 変更後数量,
 # 52 ケア種別, 53 サービス内容, 54 実施日, 55 金額,
-# 56 ステータス（申請中／承認済み／差戻し）, 57 承認者, 58 承認日時, 59 差戻し理由・コメント
+# 56 ステータス（申請中／承認済み／破棄）, 57 処理者, 58 処理日時, 59 備考・破棄理由
 STATUS_COL = 56
 APPROVER_COL = 57
 APPROVE_TIME_COL = 58
@@ -69,6 +70,13 @@ def _fmt_amount(v):
     if not v:
         return ""
     return f"{round(v):,}"
+
+
+def _parse_date(s):
+    try:
+        return datetime.strptime(str(s).strip(), "%Y/%m/%d").date()
+    except (TypeError, ValueError):
+        return date.today()
 
 
 def _customer_search_section():
@@ -289,9 +297,90 @@ def _render_entry_readonly(row, key_prefix):
         c4.text_input("金額", value=_val(row, 55), disabled=True, key=f"{key_prefix}_care_amount")
 
 
+def _render_entry_edit_form(row, key_prefix):
+    """1件分のキャンペーン実績を、カテゴリに応じた項目だけ編集可能な状態で表示する。
+    カテゴリ自体は変更できない（カテゴリを間違えた場合は破棄して入力し直してもらう）。
+    戻り値は、行全体のコピーにカテゴリ該当列だけ編集後の値を反映した更新行
+    （GASへの上書き保存にそのまま使える）。"""
+    category = _val(row, 8)
+    st.text_input("カテゴリ（変更不可）", value=category, disabled=True, key=f"{key_prefix}_category")
+
+    updated_row = [
+        ("" if pd.isna(row.iloc[i]) else str(row.iloc[i])) if i < len(row) else ""
+        for i in range(max(len(row), COMMENT_COL + 1))
+    ]
+
+    if category == "きれいBOX":
+        c1, c2 = st.columns(2)
+        sales = c1.text_input("販売数", value=_val(row, 9), key=f"{key_prefix}_kb_sales")
+        price = c2.text_input("単価", value=_val(row, 10), key=f"{key_prefix}_kb_price")
+        updated_row[9] = sales
+        updated_row[10] = price
+
+    elif category == "セリング":
+        for i in range(SELLING_ROWS):
+            base = 11 + i * 3
+            st.caption(f"商品 {i + 1}")
+            c1, c2, c3 = st.columns(3)
+            code = c1.text_input("商品記号", value=_val(row, base), key=f"{key_prefix}_sl_code_{i}")
+            sales = c2.text_input("販売数", value=_val(row, base + 1), key=f"{key_prefix}_sl_sales_{i}")
+            price = c3.text_input("単価", value=_val(row, base + 2), key=f"{key_prefix}_sl_price_{i}")
+            updated_row[base] = code
+            updated_row[base + 1] = sales
+            updated_row[base + 2] = price
+
+    elif category == "増加・切替":
+        has_increase = any(_val(row, 26 + i * 4).strip() for i in range(INCREASE_ROWS))
+        if has_increase:
+            for i in range(INCREASE_ROWS):
+                base = 26 + i * 4
+                st.caption(f"商品 {i + 1}")
+                c1, c2, c3, c4 = st.columns(4)
+                code = c1.text_input("商品記号", value=_val(row, base), key=f"{key_prefix}_ic_code_{i}")
+                cycle = c2.text_input("サイクル", value=_val(row, base + 1), key=f"{key_prefix}_ic_cycle_{i}")
+                price = c3.text_input("単価", value=_val(row, base + 2), key=f"{key_prefix}_ic_price_{i}")
+                qty = c4.text_input("数量", value=_val(row, base + 3), key=f"{key_prefix}_ic_qty_{i}")
+                updated_row[base] = code
+                updated_row[base + 1] = cycle
+                updated_row[base + 2] = price
+                updated_row[base + 3] = qty
+        else:
+            st.caption("変更前")
+            b1, b2, b3 = st.columns(3)
+            bc = b1.text_input("変更前商品", value=_val(row, 46), key=f"{key_prefix}_before_code")
+            bp = b2.text_input("単価", value=_val(row, 47), key=f"{key_prefix}_before_price")
+            bq = b3.text_input("数量", value=_val(row, 48), key=f"{key_prefix}_before_qty")
+            st.caption("変更後")
+            a1, a2, a3 = st.columns(3)
+            ac = a1.text_input("変更後商品", value=_val(row, 49), key=f"{key_prefix}_after_code")
+            ap = a2.text_input("単価", value=_val(row, 50), key=f"{key_prefix}_after_price")
+            aq = a3.text_input("数量", value=_val(row, 51), key=f"{key_prefix}_after_qty")
+            updated_row[46] = bc
+            updated_row[47] = bp
+            updated_row[48] = bq
+            updated_row[49] = ac
+            updated_row[50] = ap
+            updated_row[51] = aq
+
+    elif category == "ケアサービス":
+        c1, c2, c3, c4 = st.columns(4)
+        cur_type = _val(row, 52)
+        type_index = CARE_TYPES.index(cur_type) if cur_type in CARE_TYPES else 0
+        care_type = c1.selectbox("種別", CARE_TYPES, index=type_index, key=f"{key_prefix}_care_type")
+        care_content = c2.text_input("サービス内容", value=_val(row, 53), key=f"{key_prefix}_care_content")
+        care_date = c3.date_input("実施日", value=_parse_date(_val(row, 54)), key=f"{key_prefix}_care_date")
+        care_amount = c4.text_input("金額", value=_val(row, 55), key=f"{key_prefix}_care_amount")
+        updated_row[52] = care_type
+        updated_row[53] = care_content
+        updated_row[54] = care_date.strftime("%Y/%m/%d") if care_date else ""
+        updated_row[55] = care_amount
+
+    return updated_row
+
+
 def _manager_check_section():
     st.write("**🔍 管理職チェック**")
-    st.caption("申請中のキャンペーン実績を確認し、承認または差戻しできます。")
+    st.caption("申請中のキャンペーン実績を確認し、承認または破棄できます。")
 
     if st.button("🔄 最新の申請を読み込む", key="camp_check_reload"):
         read_csv_cached.clear()
@@ -331,17 +420,14 @@ def _manager_check_section():
         with st.expander(f"⏳ 【{category}】{cust_name} | 申請者: {applicant} | {timestamp}"):
             _render_entry_readonly(row, key_prefix=f"chk_{row_id}")
 
-            reject_reason = st.text_input("差戻し理由（差戻す場合のみ入力）", key=f"chk_reason_{row_id}")
-            col_approve, col_reject = st.columns(2)
+            comment = st.text_input("備考（破棄する場合は任意で理由を記入できます）", key=f"chk_reason_{row_id}")
+            col_approve, col_discard = st.columns(2)
 
             if col_approve.button("✅ 承認", key=f"chk_approve_{row_id}", type="primary", use_container_width=True):
-                _update_status(row, row_id, "承認済み", reject_reason)
+                _update_status(row, row_id, "承認済み", comment)
 
-            if col_reject.button("↩️ 差戻し", key=f"chk_reject_{row_id}", use_container_width=True):
-                if not reject_reason.strip():
-                    st.error("⚠️ 差戻す場合は理由を入力してください。")
-                else:
-                    _update_status(row, row_id, "差戻し", reject_reason)
+            if col_discard.button("🗑 破棄", key=f"chk_discard_{row_id}", use_container_width=True):
+                _update_status(row, row_id, "破棄", comment)
 
 
 def _update_status(row, row_id, status, comment):
@@ -366,6 +452,103 @@ def _update_status(row, row_id, status, comment):
         st.rerun()
     else:
         st.error(f"更新に失敗しました: {res.get('message')}")
+
+
+def _save_entry_edit(row_id, updated_row):
+    res = post_to_gas({
+        "action": "UPDATE_CAMPAIGN_STATUS",
+        "target_sheet_url": CAMPAIGN_SHEET_URL,
+        "row_index": row_id,
+        "updated_row": updated_row,
+    })
+    if res.get("status") == "success":
+        st.toast("修正を保存しました。", icon="✅")
+        read_csv_cached.clear()
+        st.rerun()
+    else:
+        st.error(f"保存に失敗しました: {res.get('message')}")
+
+
+def _past_data_section():
+    st.write("**📋 過去データの修正・破棄**")
+    st.caption("承認済み・破棄済みも含めた過去の申請を検索し、内容の修正や破棄ができます（申請中のものは「管理職チェック」タブで対応してください）。")
+
+    if st.button("🔄 最新のデータを読み込む", key="camp_past_reload"):
+        read_csv_cached.clear()
+
+    try:
+        df = read_csv_cached(CAMPAIGN_SHEET_CSV, header=0)
+    except Exception as e:
+        st.error(f"データ取得エラー: {e}")
+        return
+
+    if df.empty or len(df.columns) <= STATUS_COL:
+        st.info("データがありません。")
+        return
+
+    past_df = df[df.iloc[:, STATUS_COL].astype(str).str.strip() != "申請中"]
+
+    # 💡 権限0（全権限）以外は、自分の拠点（C列）のデータだけを確認・修正できる。
+    if _get_current_role() not in ALL_BRANCH_ROLES:
+        my_branch = str(st.session_state.get("user_branch", "")).strip()
+        past_df = past_df[past_df.iloc[:, 2].astype(str).str.strip() == my_branch]
+
+    if past_df.empty:
+        st.info("該当するデータがありません。")
+        return
+
+    search = st.text_input("顧客名・申請者名で絞り込み（任意）", key="camp_past_search")
+    if search.strip():
+        mask = (
+            past_df.iloc[:, 5].astype(str).str.contains(search.strip(), na=False)
+            | past_df.iloc[:, 1].astype(str).str.contains(search.strip(), na=False)
+        )
+        past_df = past_df[mask]
+
+    if past_df.empty:
+        st.info("該当するデータが見つかりませんでした。")
+        return
+
+    shown_df = past_df.iloc[::-1].head(50)
+    st.caption(f"該当件数: {len(past_df)} 件（新しい順に最大50件を表示）")
+
+    for idx, row in shown_df.iterrows():
+        row_id = idx + 2  # 見出し行(1行目)を含めた実際のシート行番号
+        applicant = _val(row, 1)
+        cust_name = _val(row, 5)
+        category = _val(row, 8)
+        timestamp = _val(row, 0)
+        status = _val(row, 56)
+        icon = {"承認済み": "✅", "破棄": "🗑"}.get(status, "・")
+
+        with st.expander(f"{icon} 【{status}】【{category}】{cust_name} | 申請者: {applicant} | {timestamp}"):
+            edit_key = f"past_editing_{row_id}"
+
+            if st.session_state.get(edit_key):
+                updated_row = _render_entry_edit_form(row, key_prefix=f"pastedit_{row_id}")
+                col_save, col_cancel = st.columns(2)
+
+                if col_save.button("💾 保存", key=f"past_save_{row_id}", type="primary", use_container_width=True):
+                    _save_entry_edit(row_id, updated_row)
+
+                if col_cancel.button("✖️ キャンセル", key=f"past_cancel_{row_id}", use_container_width=True):
+                    st.session_state.pop(edit_key, None)
+                    st.rerun()
+
+            else:
+                _render_entry_readonly(row, key_prefix=f"past_{row_id}")
+                st.write(f"**現在のステータス：** {status}　**処理者：** {_val(row, 57)}　**処理日時：** {_val(row, 58)}")
+                comment = _val(row, 59)
+                if comment.strip():
+                    st.caption(f"備考: {comment}")
+
+                col_edit, col_discard = st.columns(2)
+                if col_edit.button("✏️ 修正する", key=f"past_edit_{row_id}", use_container_width=True):
+                    st.session_state[edit_key] = True
+                    st.rerun()
+
+                if col_discard.button("🗑 破棄する", key=f"past_discard_{row_id}", use_container_width=True):
+                    _update_status(row, row_id, "破棄", comment)
 
 
 def campaign_screen():
@@ -405,12 +588,14 @@ def campaign_screen():
     st.write("---")
 
     if _get_current_role() in MANAGER_ROLES:
-        tab1, tab2 = st.tabs(["📝 入力", "🔍 管理職チェック"])
+        tab1, tab2, tab3 = st.tabs(["📝 入力", "🔍 管理職チェック", "📋 過去データ修正"])
         with tab1:
             customer = _customer_search_section()
             _entry_form_section(customer)
         with tab2:
             _manager_check_section()
+        with tab3:
+            _past_data_section()
     else:
         customer = _customer_search_section()
         _entry_form_section(customer)
