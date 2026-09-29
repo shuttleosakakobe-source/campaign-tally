@@ -37,11 +37,16 @@ _ENTRY_FORM_KEYS = (
 # 26〜45 増加 商品①〜⑤（1商品あたり4列＝商品記号/サイクル/単価/数量）,
 # 46 切替 変更前商品, 47 変更前単価, 48 変更前数量, 49 変更後商品, 50 変更後単価, 51 変更後数量,
 # 52 ケア種別, 53 サービス内容, 54 実施日, 55 金額,
-# 56 ステータス（申請中／承認済み／差戻し）, 57 承認者, 58 承認日時, 59 差戻し理由・コメント
+# 56 ステータス（申請中／承認済み／差戻し）, 57 承認者, 58 承認日時, 59 差戻し理由・コメント,
+# 60 この申請1件分の合計個数, 61 この申請1件分の合計金額
+#    （スプレッドシート側でSUMIFSによる拠点×カテゴリ集計・エリア別集計をしやすくするための
+#    ヘルパー列。切替には金額の計算式が無いため、切替の場合は両方とも空欄になる）
 STATUS_COL = 56
 APPROVER_COL = 57
 APPROVE_TIME_COL = 58
 COMMENT_COL = 59
+COUNT_TOTAL_COL = 60
+AMOUNT_TOTAL_COL = 61
 
 # 💡 管理職チェックタブを表示できる権限（ユーザーマスターF列、kensakuと同じ値を流用）。
 #    権限0＝全権限（全拠点の申請を確認可）、権限1＝拠点の管理職（自分の拠点の申請のみ確認可）。
@@ -118,6 +123,10 @@ def _entry_form_section(customer):
     product_before = price_before = qty_before = ""
     product_after = price_after = qty_after = ""
     care_type = care_content = care_date_str = care_amount = ""
+    # 💡 集計表（スプレッドシート側でSUMIFS集計しやすいよう）用に、この申請1件分の
+    #    合計個数・合計金額をカテゴリに応じて計算し、行の最後に保存しておく。
+    row_count_total = 0.0
+    row_amount_total = 0.0
 
     if category == "きれいBOX":
         c1, c2, c3 = st.columns(3)
@@ -127,10 +136,13 @@ def _entry_form_section(customer):
         c3.metric("金額", f"{_fmt_amount(kb_amount) or 0} 円")
 
         st.write(f"**総合計：{_fmt_amount(kb_amount) or 0} 円**")
+        row_count_total = _to_float(sales_count)
+        row_amount_total = kb_amount
 
     elif category == "セリング":
         rows = []
         sl_total = 0.0
+        sl_count_total = 0.0
         for i in range(SELLING_ROWS):
             st.caption(f"商品 {i + 1}")
             c1, c2, c3, c4 = st.columns(4)
@@ -139,17 +151,21 @@ def _entry_form_section(customer):
             price = c3.text_input("単価", key=f"camp_sl_price_{i}")
             amount = _to_float(sales) * _to_float(price)
             sl_total += amount
+            sl_count_total += _to_float(sales)
             c4.metric("金額", f"{_fmt_amount(amount) or 0} 円")
             rows.append((code, sales, price))
         selling_items = rows
 
         st.write(f"**総合計：{_fmt_amount(sl_total) or 0} 円**")
+        row_count_total = sl_count_total
+        row_amount_total = sl_total
 
     elif category == "増加・切替":
         sub_category = st.radio("増加 / 切替", ["増加", "切替"], horizontal=True, key="camp_ic_sub")
         if sub_category == "増加":
             rows = []
             ic_total = 0.0
+            ic_count_total = 0.0
             for i in range(INCREASE_ROWS):
                 st.caption(f"商品 {i + 1}")
                 c1, c2, c3, c4, c5 = st.columns(5)
@@ -161,11 +177,14 @@ def _entry_form_section(customer):
                 cycle_f = _to_float(cycle)
                 amount = _to_float(price) * (4 / cycle_f) * _to_float(qty) if cycle_f else 0.0
                 ic_total += amount
+                ic_count_total += _to_float(qty)
                 c5.metric("金額", f"{_fmt_amount(amount) or 0} 円")
                 rows.append((code, cycle, price, qty))
             increase_items = rows
 
             st.write(f"**総合計：{_fmt_amount(ic_total) or 0} 円**")
+            row_count_total = ic_count_total
+            row_amount_total = ic_total
         else:
             st.caption("変更前")
             b1, b2, b3 = st.columns(3)
@@ -177,6 +196,8 @@ def _entry_form_section(customer):
             product_after = a1.text_input("変更後商品", key="camp_ic_after_code")
             price_after = a2.text_input("単価", key="camp_ic_after_price")
             qty_after = a3.text_input("数量", key="camp_ic_after_qty")
+            # 💡 切替には金額の計算式が無いため、集計表の金額集計には含めない
+            #    （件数のみ拠点×カテゴリ集計に反映される）。
 
     elif category == "ケアサービス":
         c1, c2, c3, c4 = st.columns(4)
@@ -185,6 +206,7 @@ def _entry_form_section(customer):
         care_date = c3.date_input("実施日", value=date.today(), key="camp_care_date")
         care_date_str = care_date.strftime("%Y/%m/%d") if care_date else ""
         care_amount = c4.text_input("金額", key="camp_care_amount")
+        row_amount_total = _to_float(care_amount)
 
     if st.button("✅ 登録する", type="primary", use_container_width=True):
         if not customer:
@@ -208,6 +230,7 @@ def _entry_form_section(customer):
             product_after, price_after, qty_after,
             care_type, care_content, care_date_str, care_amount,
             "申請中", "", "", "",
+            row_count_total or "", row_amount_total or "",
         ]
         res = post_to_gas({
             "action": "SUBMIT_CAMPAIGN_ENTRY",
