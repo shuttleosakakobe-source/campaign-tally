@@ -81,7 +81,8 @@ var CAMPAIGN_CATEGORIES = ["きれいBOX", "セリング", "増加・切替", "�
 // 集計表シート側（担当者一覧表）のレイアウト
 var PERSON_TABLE_FIRST_ROW = 3;    // 1〜2行目が見出し、3行目から担当者データ
 var PERSON_TABLE_COL_NAME = 1;     // A: 担当者名
-var PERSON_TABLE_COL_AREA = 3;     // C: エリア（D〜Hと合わせてここから6列分を書き込む）
+var PERSON_TABLE_COL_AREA = 3;     // C: エリア（あとで手入力するため書き込まない）
+var PERSON_TABLE_COL_KB_SALES = 4; // D: きれいBOX販売数（D〜Hの5列分を書き込む）
 
 // 集計用シートの列（0始まり、views/campaign_view.py の full_row と対応させること）
 var COL_BRANCH = 2;
@@ -193,9 +194,10 @@ function updateCampaignSummary() {
 }
 
 // 集計表シートに手作業で用意された担当者一覧（A列:担当者名, B列:拠点）に沿って、
-// C列（エリア）〜H列（ケア金額）を担当者名で突き合わせて書き込む。
-// A列・B列・見出し行には一切触れない。集計用シートに該当データが無い担当者は
-// エリア・各カテゴリとも空欄にする（0円は表示しない、他画面の金額表示と同じ扱い）。
+// D列（きれいBOX販売数）〜H列（ケア金額）を担当者名で突き合わせて書き込む。
+// A列・B列・C列（エリア。あとで手入力するため触らない）・見出し行には一切触れない。
+// 集計用シートに該当データが無い担当者は各カテゴリとも空欄にする
+// （0円は表示しない、他画面の金額表示と同じ扱い）。
 function writeCampaignPersonTable_(sheet, byPerson) {
   var lastRow = sheet.getLastRow();
   if (lastRow < PERSON_TABLE_FIRST_ROW) return; // 担当者データがまだ無い
@@ -205,11 +207,10 @@ function writeCampaignPersonTable_(sheet, byPerson) {
 
   var output = names.map(function (r) {
     var name = String(r[0]).trim();
-    if (!name) return ["", "", "", "", "", ""];
+    if (!name) return ["", "", "", "", ""];
     var p = byPerson[name];
-    if (!p) return ["", "", "", "", "", ""];
+    if (!p) return ["", "", "", "", ""];
     return [
-      p.area,
       p.kbSales || "",
       p.kbAmount || "",
       p.selling || "",
@@ -218,7 +219,7 @@ function writeCampaignPersonTable_(sheet, byPerson) {
     ];
   });
 
-  sheet.getRange(PERSON_TABLE_FIRST_ROW, PERSON_TABLE_COL_AREA, output.length, 6).setValues(output);
+  sheet.getRange(PERSON_TABLE_FIRST_ROW, PERSON_TABLE_COL_KB_SALES, output.length, 5).setValues(output);
 }
 
 // メニューが表示されない（スクリプトがスプレッドシートに紐付いていない）場合はこれを
