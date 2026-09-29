@@ -51,7 +51,7 @@ else:
         if st.button("ログイン", type="primary", use_container_width=True):
             raw = load_sheet_data(gid="0")
             if raw and len(raw) > 1:
-                # 行ごとに判定 (A列: 0[メール], C列: 2[名前], D列: 3[パスワード], F列: 5[権限])
+                # 行ごとに判定 (A列: 0[メール], B列: 1[拠点], C列: 2[名前], D列: 3[パスワード], F列: 5[権限])
                 user_found = None
                 for row in raw[1:]:
                     if len(row) >= 6:
@@ -61,6 +61,7 @@ else:
                         if email_val.lower() == u_email.lower() and pass_val == u_pass:
                             user_found = {
                                 "email": email_val,
+                                "branch": str(row[1]).strip(),  # B列
                                 "name": str(row[2]).strip(),  # C列
                                 "role": str(row[5]).strip()   # F列
                             }
@@ -70,6 +71,7 @@ else:
                     st.session_state.user_name = user_found["name"]
                     st.session_state.user_role = user_found["role"]
                     st.session_state.user_code = user_found["email"]
+                    st.session_state.user_branch = user_found["branch"]
                     st.session_state.login_status = True
                     st.session_state.logout_requested = False
 

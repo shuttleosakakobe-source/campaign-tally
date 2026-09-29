@@ -5,7 +5,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 
-from views.common import lookup_customer, post_to_gas, read_csv_cached, CAMPAIGN_SHEET_URL, CAMPAIGN_SHEET_CSV, JST
+from views.common import lookup_customer, post_to_gas, read_csv_cached, BRANCH_CUSTOMER_CSV, CAMPAIGN_SHEET_URL, CAMPAIGN_SHEET_CSV, JST
 
 CATEGORIES = ["きれいBOX", "セリング", "増加・切替", "ケアサービス"]
 CARE_TYPES = ["SM", "TMX", "MM", "その他"]
@@ -39,6 +39,11 @@ def _customer_search_section():
     if btn_search:
         if not cust_code.strip():
             st.warning("顧客コードを入力してください。")
+        elif str(st.session_state.get("user_branch", "")).strip() not in BRANCH_CUSTOMER_CSV:
+            st.error(
+                f"⚠️ 拠点「{st.session_state.get('user_branch', '(未設定)')}」に対応する顧客データが"
+                "設定されていません。管理者にお問い合わせください。"
+            )
         else:
             result = lookup_customer(cust_code)
             if result is None:

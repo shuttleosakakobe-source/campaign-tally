@@ -6,9 +6,15 @@ import requests
 import json
 from datetime import timezone, timedelta, datetime
 
-# 顧客マスター（A=加盟店名, B=顧客コード, C=顧客名, D=(未使用), E=加盟店コード）
-# kensaku（views/maint_common.py）のCUSTOMER_MASTER_CSVと同一シート・同一列構成。
-CUSTOMER_MASTER_CSV = "https://docs.google.com/spreadsheets/d/1AkMb1J2m3VZAIyMCKmr3T3E8-kJB0BDDdWQJuEn7YGc/gviz/tq?tqx=out:csv&gid=127347205"
+# 顧客マスター（A=加盟店名, B=顧客コード, C=顧客名, D=(未使用), E=加盟店コード）。
+# 同じスプレッドシート内に拠点ごとのシート（gidが別）があり、ログイン中ユーザーの
+# 拠点（ユーザーマスターB列）に応じて参照するgidを切り替える。
+BRANCH_CUSTOMER_CSV = {
+    "神戸中央店": "https://docs.google.com/spreadsheets/d/1AkMb1J2m3VZAIyMCKmr3T3E8-kJB0BDDdWQJuEn7YGc/gviz/tq?tqx=out:csv&gid=127347205",
+    "京都中央店": "https://docs.google.com/spreadsheets/d/1AkMb1J2m3VZAIyMCKmr3T3E8-kJB0BDDdWQJuEn7YGc/gviz/tq?tqx=out:csv&gid=291761179",
+    "大阪中央店": "https://docs.google.com/spreadsheets/d/1AkMb1J2m3VZAIyMCKmr3T3E8-kJB0BDDdWQJuEn7YGc/gviz/tq?tqx=out:csv&gid=788868615",
+    "大阪北店": "https://docs.google.com/spreadsheets/d/1AkMb1J2m3VZAIyMCKmr3T3E8-kJB0BDDdWQJuEn7YGc/gviz/tq?tqx=out:csv&gid=734014298",
+}
 
 # 💡 キャンペーン入力データの保存先。まだ専用のスプレッドシート・GAS Web Appが
 #    用意できていないため、いずれも空文字のプレースホルダーにしてある。
@@ -40,12 +46,20 @@ def read_csv_cached(url, **kwargs):
 
 
 def lookup_customer(cust_code):
-    """顧客コードから顧客マスターを検索し、顧客名・加盟店名・加盟店コードを返す。
-    戻り値: {"store_name":..., "cust_name":..., "store_code":...} / 見つからなければ None"""
+    """顧客コードから、ログイン中ユーザーの拠点に対応する顧客マスターを検索し、
+    顧客名・加盟店名・加盟店コードを返す。
+    戻り値: {"store_name":..., "cust_name":..., "store_code":...} / 見つからなければ None
+    （拠点が未ログイン・未設定・対応表に無い場合もNoneを返す）"""
     if not cust_code or not str(cust_code).strip():
         return None
+
+    branch = st.session_state.get("user_branch", "")
+    customer_master_csv = BRANCH_CUSTOMER_CSV.get(str(branch).strip())
+    if not customer_master_csv:
+        return None
+
     try:
-        df_master = read_csv_cached(CUSTOMER_MASTER_CSV, storage_options={"User-Agent": "Mozilla/5.0"})
+        df_master = read_csv_cached(customer_master_csv, storage_options={"User-Agent": "Mozilla/5.0"})
     except Exception:
         return None
 
