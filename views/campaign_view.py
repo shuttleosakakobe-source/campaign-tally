@@ -13,6 +13,20 @@ CARE_TYPES = ["SM", "TMX", "MM", "その他"]
 SELLING_ROWS = 5   # セリングの入力行数
 INCREASE_ROWS = 5  # 増加・切替＞増加の入力行数
 
+# 💡 登録成功後にキャンペーン実績入力欄をクリアするために消すキー一覧
+#    （顧客コード検索欄・検索結果は残す＝同じ顧客に続けて別カテゴリを登録しやすくするため）。
+_ENTRY_FORM_KEYS = (
+    ["camp_category", "camp_kb_sales", "camp_kb_price"]
+    + [f"camp_sl_{field}_{i}" for i in range(SELLING_ROWS) for field in ("code", "sales", "price")]
+    + ["camp_ic_sub"]
+    + [f"camp_ic_{field}_{i}" for i in range(INCREASE_ROWS) for field in ("code", "cycle", "price", "qty")]
+    + [
+        "camp_ic_before_code", "camp_ic_before_price", "camp_ic_before_qty",
+        "camp_ic_after_code", "camp_ic_after_price", "camp_ic_after_qty",
+        "camp_care_type", "camp_care_content", "camp_care_date", "camp_care_amount",
+    ]
+)
+
 # 💡 保存先シートの列（0始まり）。カテゴリごとに使うフィールドが異なるため、
 #    全カテゴリ分の列を持つ1枚のシートに、該当しない列は空欄のまま書き込む
 #    （kensakuの各モードと同じ考え方）。セリングと増加・切替＞増加は、それぞれ
@@ -200,7 +214,10 @@ def _entry_form_section(customer):
             "full_row": full_row,
         })
         if res.get("status") == "success":
-            st.success("✅ 登録しました。管理職チェック待ちです。")
+            for k in _ENTRY_FORM_KEYS:
+                st.session_state.pop(k, None)
+            st.toast("✅ 登録しました。管理職チェック待ちです。", icon="✅")
+            st.rerun()
         else:
             st.error(f"登録に失敗しました: {res.get('message')}")
 
