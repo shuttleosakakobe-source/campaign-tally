@@ -30,6 +30,20 @@ APPROVE_TIME_COL = 56
 COMMENT_COL = 57
 
 
+def _to_float(v):
+    try:
+        return float(str(v).strip())
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _fmt_amount(v):
+    """金額表示用（整数円に丸めてカンマ区切り）。0円は空欄にする（未入力行を目立たせないため）。"""
+    if not v:
+        return ""
+    return f"{round(v):,}"
+
+
 def _customer_search_section():
     st.write("**🔍 顧客コード検索**")
     col_input, col_btn = st.columns([4, 1])
@@ -79,34 +93,52 @@ def _entry_form_section(customer):
     care_type = care_content = care_date_str = care_amount = ""
 
     if category == "きれいBOX":
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         sales_count = c1.text_input("販売数", key="camp_kb_sales")
         unit_price = c2.text_input("単価", key="camp_kb_price")
+        kb_amount = _to_float(sales_count) * _to_float(unit_price)
+        c3.metric("金額", f"{_fmt_amount(kb_amount) or 0} 円")
+
+        st.write(f"**総合計：{_fmt_amount(kb_amount) or 0} 円**")
 
     elif category == "セリング":
         rows = []
+        sl_total = 0.0
         for i in range(SELLING_ROWS):
             st.caption(f"商品 {i + 1}")
-            c1, c2, c3 = st.columns(3)
+            c1, c2, c3, c4 = st.columns(4)
             code = c1.text_input("商品記号", key=f"camp_sl_code_{i}")
             sales = c2.text_input("販売数", key=f"camp_sl_sales_{i}")
             price = c3.text_input("単価", key=f"camp_sl_price_{i}")
+            amount = _to_float(sales) * _to_float(price)
+            sl_total += amount
+            c4.metric("金額", f"{_fmt_amount(amount) or 0} 円")
             rows.append((code, sales, price))
         selling_items = rows
+
+        st.write(f"**総合計：{_fmt_amount(sl_total) or 0} 円**")
 
     elif category == "増加・切替":
         sub_category = st.radio("増加 / 切替", ["増加", "切替"], horizontal=True, key="camp_ic_sub")
         if sub_category == "増加":
             rows = []
+            ic_total = 0.0
             for i in range(INCREASE_ROWS):
                 st.caption(f"商品 {i + 1}")
-                c1, c2, c3, c4 = st.columns(4)
+                c1, c2, c3, c4, c5 = st.columns(5)
                 code = c1.text_input("商品記号", key=f"camp_ic_code_{i}")
                 cycle = c2.text_input("サイクル", key=f"camp_ic_cycle_{i}")
                 price = c3.text_input("単価", key=f"camp_ic_price_{i}")
                 qty = c4.text_input("数量", key=f"camp_ic_qty_{i}")
+                # 💡 増加の金額＝商品単価×(4÷サイクル)×数量（サイクルが未入力・0の場合は計算しない）
+                cycle_f = _to_float(cycle)
+                amount = _to_float(price) * (4 / cycle_f) * _to_float(qty) if cycle_f else 0.0
+                ic_total += amount
+                c5.metric("金額", f"{_fmt_amount(amount) or 0} 円")
                 rows.append((code, cycle, price, qty))
             increase_items = rows
+
+            st.write(f"**総合計：{_fmt_amount(ic_total) or 0} 円**")
         else:
             st.caption("変更前")
             b1, b2, b3 = st.columns(3)
