@@ -54,10 +54,15 @@ else:
             st.info(f"👤 {pending['name']} さん、担当する拠点を選択してください。")
             chosen_branch = st.selectbox("拠点", pending["branches"], key="login_branch_choice")
             if st.button("この拠点で開始", type="primary", use_container_width=True):
-                st.session_state.user_name = pending["name"]
-                st.session_state.user_role = pending["role"]
-                st.session_state.user_code = pending["email"]
-                st.session_state.user_branch = chosen_branch
+                chosen_row = next(
+                    (m for m in pending["matched_rows"] if m["branch"] == chosen_branch),
+                    pending["matched_rows"][0],
+                )
+                st.session_state.user_name = chosen_row["name"]
+                st.session_state.user_role = chosen_row["role"]
+                st.session_state.user_code = chosen_row["email"]
+                st.session_state.user_branch = chosen_row["branch"]
+                st.session_state.user_area = chosen_row["area"]
                 st.session_state.login_status = True
                 st.session_state.logout_requested = False
                 st.session_state.pop("pending_login", None)
@@ -74,7 +79,8 @@ else:
             if st.button("ログイン", type="primary", use_container_width=True):
                 raw = load_sheet_data(gid="0")
                 if raw and len(raw) > 1:
-                    # 行ごとに判定 (A列: 0[メール], B列: 1[拠点], C列: 2[名前], D列: 3[パスワード], F列: 5[権限])
+                    # 行ごとに判定 (A列: 0[メール], B列: 1[拠点], C列: 2[名前], D列: 3[パスワード],
+                    # F列: 5[権限], G列: 6[エリア])
                     # 同じメール・パスワードの行が複数あってもよい（拠点違いで複数行に分けている場合）ため、
                     # 一致した行すべてから拠点を集める。
                     matched_rows = []
@@ -87,7 +93,8 @@ else:
                                     "email": email_val,
                                     "branch": str(row[1]).strip(),  # B列
                                     "name": str(row[2]).strip(),    # C列
-                                    "role": str(row[5]).strip()     # F列
+                                    "role": str(row[5]).strip(),    # F列
+                                    "area": str(row[6]).strip() if len(row) >= 7 else "",  # G列
                                 })
 
                     if matched_rows:
@@ -99,6 +106,7 @@ else:
                             st.session_state.user_role = first["role"]
                             st.session_state.user_code = first["email"]
                             st.session_state.user_branch = branches[0] if branches else ""
+                            st.session_state.user_area = first["area"]
                             st.session_state.login_status = True
                             st.session_state.logout_requested = False
 
@@ -112,6 +120,7 @@ else:
                                 "name": first["name"],
                                 "role": first["role"],
                                 "branches": branches,
+                                "matched_rows": matched_rows,
                             }
                         st.rerun()
                     else:
