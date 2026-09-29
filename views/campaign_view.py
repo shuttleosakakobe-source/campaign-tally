@@ -263,7 +263,9 @@ def _manager_check_section():
         read_csv_cached.clear()
 
     try:
-        df = read_csv_cached(CAMPAIGN_SHEET_CSV, header=None)
+        # 💡 1行目は見出し行なのでheader=0でスキップする（header=Noneのままだと
+        #    見出し行までデータ扱いになり、承認時に書き込む行番号が1つずれてしまう）。
+        df = read_csv_cached(CAMPAIGN_SHEET_CSV, header=0)
     except Exception as e:
         st.error(f"データ取得エラー: {e}")
         return
