@@ -26,6 +26,21 @@ CAMPAIGN_SHEET_CSV = "https://docs.google.com/spreadsheets/d/1P_T6ZylVbu9FBK5Hur
 JST = timezone(timedelta(hours=+9), 'JST')
 
 
+def get_current_role():
+    """ログイン中のユーザーの権限（app.pyのログイン処理でユーザーマスターF列から
+    取得され st.session_state["user_role"] にセットされたもの）を返す。
+    シート側の読み込み方によっては数値列が"2.0"のような文字列になってしまう
+    ことがあるため、念のため前後の空白除去と末尾".0"の除去で正規化する。
+    （kensaku: views/maint_common.py の get_current_role() と共通の実装・命名。
+    将来1つの業務アプリに統合する際、権限判定ロジックをそのまま流用できるようにしている。
+    未ログイン等で値が無い場合のデフォルトは、kensakuでは安全側として"0"＝全権限だが、
+    このアプリは承認・金額を扱うため逆に安全側＝権限なし（""）のままにしている。）"""
+    role = str(st.session_state.get("user_role", "")).strip()
+    if role.endswith(".0"):
+        role = role[:-2]
+    return role
+
+
 def post_to_gas(payload):
     if not GAS_URL:
         return {"status": "error", "message": "保存先が未設定です（GAS_URLが空）。管理者に設定を依頼してください。"}

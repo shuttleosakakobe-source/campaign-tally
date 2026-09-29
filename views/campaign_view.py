@@ -6,7 +6,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime, timedelta
 
-from views.common import lookup_customer, post_to_gas, read_csv_cached, BRANCH_CUSTOMER_CSV, CAMPAIGN_SHEET_URL, CAMPAIGN_SHEET_CSV, JST
+from views.common import lookup_customer, post_to_gas, read_csv_cached, get_current_role, BRANCH_CUSTOMER_CSV, CAMPAIGN_SHEET_URL, CAMPAIGN_SHEET_CSV, JST
 
 CATEGORIES = ["きれいBOX", "セリング", "増加・切替", "ケアサービス"]
 CARE_TYPES = ["SM", "TMX", "MM", "その他"]
@@ -47,15 +47,10 @@ COMMENT_COL = 59
 # 💡 管理職チェックタブを表示できる権限（ユーザーマスターF列、kensakuと同じ値を流用）。
 #    権限0＝全権限（全拠点の申請を確認可）、権限1＝拠点の管理職（自分の拠点の申請のみ確認可）。
 #    それ以外の権限は入力タブのみで、管理職チェックタブ自体が表示されない。
+#    権限判定そのもの（get_current_role）は views/common.py に共通化してある
+#    （kensakuのviews/maint_common.pyと同じ実装・命名）。
 MANAGER_ROLES = {"0", "1"}
 ALL_BRANCH_ROLES = {"0"}
-
-
-def _get_current_role():
-    role = str(st.session_state.get("user_role", "")).strip()
-    if role.endswith(".0"):
-        role = role[:-2]
-    return role
 
 
 def _to_float(v):
@@ -400,7 +395,7 @@ def _manager_check_section():
     pending_df = df[df.iloc[:, STATUS_COL].astype(str).str.strip() == "申請中"]
 
     # 💡 権限0（全権限）以外は、自分の拠点（C列）の申請だけを確認・承認できる。
-    if _get_current_role() not in ALL_BRANCH_ROLES:
+    if get_current_role() not in ALL_BRANCH_ROLES:
         my_branch = str(st.session_state.get("user_branch", "")).strip()
         pending_df = pending_df[pending_df.iloc[:, 2].astype(str).str.strip() == my_branch]
 
@@ -489,7 +484,7 @@ def _past_data_section():
     past_df = df[df.iloc[:, STATUS_COL].astype(str).str.strip() != "申請中"]
 
     # 💡 権限0（全権限）以外は、自分の拠点（C列）のデータだけを確認・修正できる。
-    if _get_current_role() not in ALL_BRANCH_ROLES:
+    if get_current_role() not in ALL_BRANCH_ROLES:
         my_branch = str(st.session_state.get("user_branch", "")).strip()
         past_df = past_df[past_df.iloc[:, 2].astype(str).str.strip() == my_branch]
 
@@ -679,7 +674,7 @@ def campaign_screen():
     st.markdown("#### 📊 キャンペーン集計")
     st.write("---")
 
-    if _get_current_role() in MANAGER_ROLES:
+    if get_current_role() in MANAGER_ROLES:
         tab1, tab2, tab3, tab4 = st.tabs(["📝 入力", "🔍 管理職チェック", "📋 過去データ修正", "🏆 ランキング"])
         with tab1:
             customer = _customer_search_section()
