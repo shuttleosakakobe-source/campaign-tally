@@ -6,7 +6,7 @@ sys.path.append(str(Path(__file__).parent))
 
 import streamlit as st
 import os
-from utils import inject_pwa_blocker, set_login_storage, check_session_storage
+from utils import inject_pwa_blocker, set_login_storage, check_session_storage, clear_login_storage
 from data_loader import load_sheet_data
 from views.campaign_view import campaign_screen
 
@@ -33,6 +33,7 @@ if st.session_state.login_status:
         if st.button("🚪 ログアウト", use_container_width=True):
             st.session_state.login_status = False
             st.session_state.logout_requested = True
+            clear_login_storage()
             st.rerun()
 
     campaign_screen()
@@ -69,7 +70,8 @@ else:
 
                 set_login_storage(
                     st.session_state.user_name, "", False,
-                    st.session_state.user_role, st.session_state.user_code
+                    st.session_state.user_role, st.session_state.user_code,
+                    st.session_state.user_branch, st.session_state.user_area,
                 )
                 st.rerun()
         else:
@@ -112,7 +114,8 @@ else:
 
                             set_login_storage(
                                 st.session_state.user_name, "", False,
-                                st.session_state.user_role, st.session_state.user_code
+                                st.session_state.user_role, st.session_state.user_code,
+                                st.session_state.user_branch, st.session_state.user_area,
                             )
                         else:
                             st.session_state.pending_login = {
