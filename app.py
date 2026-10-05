@@ -6,7 +6,7 @@ sys.path.append(str(Path(__file__).parent))
 
 import streamlit as st
 import os
-from utils import inject_pwa_blocker, set_login_storage, check_session_storage, clear_login_storage
+from utils import inject_pwa_blocker, set_login_storage, check_session_storage, clear_login_storage, remember_email, get_remembered_email
 from data_loader import load_sheet_data
 from views.campaign_view import campaign_screen
 
@@ -75,7 +75,7 @@ else:
                 )
                 st.rerun()
         else:
-            u_email = st.text_input("メールアドレス").strip()
+            u_email = st.text_input("メールアドレス", value=get_remembered_email()).strip()
             u_pass = st.text_input("パスワード", type="password").strip()
 
             if st.button("ログイン", type="primary", use_container_width=True):
@@ -100,6 +100,7 @@ else:
                                 })
 
                     if matched_rows:
+                        remember_email(u_email)
                         branches = list(dict.fromkeys(m["branch"] for m in matched_rows if m["branch"]))
                         first = matched_rows[0]
 
