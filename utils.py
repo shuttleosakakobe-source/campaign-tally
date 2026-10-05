@@ -1,4 +1,5 @@
 import json
+import time
 import streamlit as st
 from streamlit_local_storage import LocalStorage
 
@@ -6,6 +7,8 @@ from streamlit_local_storage import LocalStorage
 _LOGIN_STORAGE_KEY = "campaign_tally_login_info"
 # 再ログイン画面でメールアドレスを自動入力するための保存キー（ログアウトしても消さない）
 _LOGIN_EMAIL_KEY = "campaign_tally_login_email"
+# 「ログイン情報を保存する」を選んだ場合の保存期間（30日）
+_LOGIN_STORAGE_TTL_SECONDS = 30 * 24 * 60 * 60
 
 
 def inject_pwa_blocker():
@@ -23,11 +26,17 @@ def _get_local_storage():
     return st.session_state["_local_storage"]
 
 
-def set_login_storage(user_name, user_url, needs_alert, user_role, user_code, user_branch="", user_area=""):
-    """ログイン情報をセッション状態＋ブラウザのlocalStorageに保存する（ログイン記憶機能）。
-    ブラウザを閉じて開き直しても再ログインしなくて済むようにする。
-    💡 パスワードは一切保存しない。保存するのはログイン状態を復元するための
-    最小限の情報（氏名・権限・メール・拠点・エリア）のみ。"""
+def set_login_storage(user_name, user_url, needs_alert, user_role, user_code, user_branch="", user_area="", remember=False):
+    """ログイン情報をセッション状態に保存する。今回のログイン自体はこれで完了する
+    （remember の値に関わらず、ログイン中は使える）。
+    💡 remember=True のときだけ、ブラウザのlocalStorageにも保存し、ブラウザを閉じて
+    開き直しても30日間は再ログインしなくて済むようにする（「ログイン情報を保存する」
+    ボタン／チェックボックスを押した場合のみ）。remember=False の場合は、以前保存されて
+    いた情報があれば念のため消しておく（チェックを外して以前保存した情報が残り続ける
+    事態を防ぐため）。
+    パスワードは一切保存しない。保存するのはログイン状態を復元するための
+    最小限の情報（氏名・権限・メール・拠点・エリア・保存日時）のみ。
+    （kensaku: utils.py と共通の実装。）"""
     st.session_state["user_name"] = user_name
     st.session_state["user_url"] = user_url
     st.session_state["needs_alert"] = needs_alert
@@ -36,6 +45,10 @@ def set_login_storage(user_name, user_url, needs_alert, user_role, user_code, us
     st.session_state["user_branch"] = user_branch
     st.session_state["user_area"] = user_area
 
+    if not remember:
+        clear_login_storage()
+        return
+
     try:
         _get_local_storage().setItem(_LOGIN_STORAGE_KEY, json.dumps({
             "user_name": user_name,
@@ -43,6 +56,7 @@ def set_login_storage(user_name, user_url, needs_alert, user_role, user_code, us
             "user_code": user_code,
             "user_branch": user_branch,
             "user_area": user_area,
+            "saved_at": time.time(),
         }))
     except Exception:
         # localStorageへの保存に失敗しても、今回のログイン自体（session_state）は
@@ -53,8 +67,10 @@ def set_login_storage(user_name, user_url, needs_alert, user_role, user_code, us
 def check_session_storage():
     """ブラウザのlocalStorageに記憶されたログイン情報があれば、ログイン画面を
     飛ばして自動的にログイン状態を復元する。パスワードの再検証はしない
-    （そもそも保存していないため）。ログアウト時は必ず clear_login_storage() で
-    消すこと（消さないとログアウトしてもすぐ自動ログインし直されてしまう）。"""
+    （そもそも保存していないため）。保存から30日を超えている場合は期限切れとして
+    情報を消し、普通にログインし直してもらう。ログアウト時は必ず
+    clear_login_storage() で消すこと（消さないとログアウトしてもすぐ
+    自動ログインし直されてしまう）。"""
     try:
         raw = _get_local_storage().getItem(_LOGIN_STORAGE_KEY)
     except Exception:
@@ -68,6 +84,15 @@ def check_session_storage():
         except (TypeError, ValueError):
             return
     if not isinstance(raw, dict) or not raw.get("user_code"):
+        return
+
+    saved_at = raw.get("saved_at")
+    try:
+        is_expired = saved_at is None or (time.time() - float(saved_at)) > _LOGIN_STORAGE_TTL_SECONDS
+    except (TypeError, ValueError):
+        is_expired = True
+    if is_expired:
+        clear_login_storage()
         return
 
     st.session_state["user_name"] = raw.get("user_name", "")

@@ -72,11 +72,13 @@ else:
                     st.session_state.user_name, "", False,
                     st.session_state.user_role, st.session_state.user_code,
                     st.session_state.user_branch, st.session_state.user_area,
+                    remember=pending.get("remember", False),
                 )
                 st.rerun()
         else:
             u_email = st.text_input("メールアドレス", value=get_remembered_email()).strip()
             u_pass = st.text_input("パスワード", type="password").strip()
+            remember = st.checkbox("📌 ログイン情報を保存する（30日間）")
 
             if st.button("ログイン", type="primary", use_container_width=True):
                 raw = load_sheet_data(gid="0")
@@ -117,6 +119,7 @@ else:
                                 st.session_state.user_name, "", False,
                                 st.session_state.user_role, st.session_state.user_code,
                                 st.session_state.user_branch, st.session_state.user_area,
+                                remember=remember,
                             )
                         else:
                             st.session_state.pending_login = {
@@ -125,6 +128,7 @@ else:
                                 "role": first["role"],
                                 "branches": branches,
                                 "matched_rows": matched_rows,
+                                "remember": remember,
                             }
                         st.rerun()
                     else:
