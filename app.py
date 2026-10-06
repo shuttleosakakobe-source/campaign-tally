@@ -81,6 +81,9 @@ else:
             remember = st.checkbox("📌 ログイン情報を保存する（30日間）")
 
             if st.button("ログイン", type="primary", use_container_width=True):
+                if not u_email or not u_pass:
+                    st.error("メールアドレスとパスワードを入力してください")
+                    st.stop()
                 raw = load_sheet_data(gid="0")
                 if raw and len(raw) > 1:
                     # 行ごとに判定 (A列: 0[メール], B列: 1[拠点], C列: 2[名前], D列: 3[パスワード],
@@ -92,7 +95,7 @@ else:
                         if len(row) >= 6:
                             email_val = str(row[0]).strip()  # A列
                             pass_val = str(row[3]).strip()   # D列
-                            if email_val.lower() == u_email.lower() and pass_val == u_pass:
+                            if email_val and pass_val and email_val.lower() == u_email.lower() and pass_val == u_pass:
                                 matched_rows.append({
                                     "email": email_val,
                                     "branch": str(row[1]).strip(),  # B列
