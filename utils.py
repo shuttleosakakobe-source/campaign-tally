@@ -1,7 +1,15 @@
 import json
 import time
 import streamlit as st
-from streamlit_local_storage import LocalStorage
+
+try:
+    from streamlit_local_storage import LocalStorage
+except Exception:
+    # 💡 streamlit_local_storageのimportに失敗した場合（Streamlit Cloud側の
+    # インストール不具合など）でも、アプリ全体がImportErrorで落ちないようにする。
+    # 以下の各関数は元々try/exceptでLocalStorage関連の失敗を握っているため、
+    # ここでNoneにしておけば「ログイン記憶」機能だけが無効になり、通常ログインは動作する。
+    LocalStorage = None
 
 # ブラウザのlocalStorageに、ログイン記憶情報を保存するキー名
 _LOGIN_STORAGE_KEY = "campaign_tally_login_info"
@@ -21,6 +29,8 @@ def _get_local_storage():
     （毎回new LocalStorage()すると、ブラウザとの同期が走り直してしまうため）。
     （kensaku: utils.py と共通の実装。将来1つの業務アプリに統合する際、
     ログイン記憶の仕組みをそのまま流用できるようにしている。）"""
+    if LocalStorage is None:
+        raise RuntimeError("streamlit_local_storage is unavailable")
     if "_local_storage" not in st.session_state:
         st.session_state["_local_storage"] = LocalStorage()
     return st.session_state["_local_storage"]
