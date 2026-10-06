@@ -71,8 +71,10 @@ def set_login_storage(user_name, user_url, needs_alert, user_role, user_code, us
         # 💡 setItem直後にページが切り替わる（st.rerun()される）と、ブラウザ側が
         #    localStorageへの書き込みを終える前にコンポーネントが外れてしまい、
         #    保存されないことがある（streamlit-local-storageの既知の挙動）。
-        #    書き込みが確実に終わるよう、ここで一呼吸おく。
-        time.sleep(0.5)
+        #    特にiPad（モバイルSafari）ではコンポーネントの読み込み・応答が
+        #    PCより遅くなりやすく、0.5秒では書き込みが終わらないことがあったため、
+        #    余裕を持って1.5秒に伸ばしている。
+        time.sleep(1.5)
     except Exception:
         # localStorageへの保存に失敗しても、今回のログイン自体（session_state）は
         # 既に完了しているので、アプリの動作は止めない（次回また手入力ログインになるだけ）。
@@ -136,7 +138,7 @@ def remember_email(email):
     （kensaku: utils.py と共通の実装。）"""
     try:
         _get_local_storage().setItem(_LOGIN_EMAIL_KEY, email)
-        time.sleep(0.5)  # set_login_storageと同じ理由（書き込みが終わる前にページが切り替わるのを防ぐ）
+        time.sleep(1.5)  # set_login_storageと同じ理由（書き込みが終わる前にページが切り替わるのを防ぐ）
     except Exception:
         pass
 
