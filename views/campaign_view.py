@@ -16,10 +16,13 @@ INCREASE_ROWS = 5  # 増加・切替＞増加の入力行数
 
 # 💡 登録成功後にキャンペーン実績入力欄をクリアするために消すキー一覧
 #    （顧客コード検索欄・検索結果は残す＝同じ顧客に続けて別カテゴリを登録しやすくするため）。
+#    camp_category・camp_ic_subは消さない＝選んでいたカテゴリ（増加/切替）はそのまま
+#    維持する。消してしまうと登録のたびに一覧の先頭（きれいBOX／増加）に戻ってしまい、
+#    同じカテゴリで続けて入力している最中に画面が切り替わって入力欄が見えなくなる
+#    （連続入力時の不具合として報告された症状）。
 _ENTRY_FORM_KEYS = (
-    ["camp_category", "camp_kb_sales", "camp_kb_price"]
+    ["camp_kb_sales", "camp_kb_price"]
     + [f"camp_sl_{field}_{i}" for i in range(SELLING_ROWS) for field in ("code", "sales", "price")]
-    + ["camp_ic_sub"]
     + [f"camp_ic_{field}_{i}" for i in range(INCREASE_ROWS) for field in ("code", "cycle", "price", "qty")]
     + [
         "camp_ic_before_code", "camp_ic_before_price", "camp_ic_before_qty",
@@ -546,6 +549,54 @@ def _past_data_section():
                     _update_status(row, row_id, "破棄", comment)
 
 
+def _my_history_section():
+    """自分（ログイン中ユーザー）が過去に登録したキャンペーン実績を、承認待ち・
+    承認済み・破棄済みすべて含めて読み取り専用で確認できるようにする。
+    権限に関わらず全ユーザーが使える（過去データ修正タブは管理職専用のため、
+    一般の入力担当者には自分の入力内容を確認する手段がこれまで無かった）。"""
+    st.write("**📋 自分の入力履歴**")
+    st.caption("自分が登録したキャンペーン実績を、承認待ち・承認済み・破棄済みすべて確認できます（確認のみ・修正は管理職にご相談ください）。")
+
+    if st.button("🔄 最新のデータを読み込む", key="camp_myhist_reload"):
+        read_csv_cached.clear()
+
+    try:
+        df = read_csv_cached(CAMPAIGN_SHEET_CSV, header=0)
+    except Exception as e:
+        st.error(f"データ取得エラー: {e}")
+        return
+
+    if df.empty or len(df.columns) <= STATUS_COL:
+        st.info("データがありません。")
+        return
+
+    my_name = str(st.session_state.get("user_name", "")).strip()
+    my_df = df[df.iloc[:, 1].astype(str).str.strip() == my_name]
+
+    if my_df.empty:
+        st.info("まだ登録履歴がありません。")
+        return
+
+    shown_df = my_df.iloc[::-1].head(50)
+    st.caption(f"該当件数: {len(my_df)} 件（新しい順に最大50件を表示）")
+
+    for idx, row in shown_df.iterrows():
+        cust_name = _val(row, 5)
+        category = _val(row, 8)
+        timestamp = _val(row, 0)
+        status = _val(row, 56)
+        icon = {"承認済み": "✅", "破棄": "🗑", "申請中": "⏳"}.get(status, "・")
+
+        with st.expander(f"{icon} 【{status}】【{category}】{cust_name} | {timestamp}"):
+            _render_entry_readonly(row, key_prefix=f"myh_{idx}")
+            st.write(f"**現在のステータス：** {status}")
+            if status != "申請中":
+                st.write(f"**処理者：** {_val(row, 57)}　**処理日時：** {_val(row, 58)}")
+                comment = _val(row, 59)
+                if comment.strip():
+                    st.caption(f"備考: {comment}")
+
+
 def _render_ranking_table(ranked):
     if ranked.empty:
         st.caption("データがありません。")
@@ -675,7 +726,7 @@ def campaign_screen():
     st.write("---")
 
     if get_current_role() in MANAGER_ROLES:
-        tab1, tab2, tab3, tab4 = st.tabs(["📝 入力", "🔍 管理職チェック", "📋 過去データ修正", "🏆 ランキング"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📝 入力", "🔍 管理職チェック", "📋 過去データ修正", "📋 自分の入力履歴", "🏆 ランキング"])
         with tab1:
             customer = _customer_search_section()
             _entry_form_section(customer)
@@ -684,13 +735,17 @@ def campaign_screen():
         with tab3:
             _past_data_section()
         with tab4:
+            _my_history_section()
+        with tab5:
             _ranking_section()
     else:
-        tab1, tab2 = st.tabs(["📝 入力", "🏆 ランキング"])
+        tab1, tab2, tab3 = st.tabs(["📝 入力", "📋 自分の入力履歴", "🏆 ランキング"])
         with tab1:
             customer = _customer_search_section()
             _entry_form_section(customer)
         with tab2:
+            _my_history_section()
+        with tab3:
             _ranking_section()
 
     st.write("---")
