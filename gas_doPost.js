@@ -159,36 +159,49 @@ function updateCampaignSummary() {
   var data = rawSheet.getDataRange().getValues();
   var rows = data.slice(1); // 見出し行を除く
 
-  // 担当者名（申請者）ごとに承認済みデータを集計する
-  var byPerson = {}; // name -> {area, kbSales, kbAmount, selling, increase, care}
+  // 担当者名（申請者）ごとに承認済みデータ（＝ステータスが「承認済み」の行）だけを集計する。
+  // 「申請中」「破棄」は対象外（この時点で除外しているので、集計表・ランキング表どちらにも含まれない）。
+  var byPerson = {}; // name -> {area, branch, kbSales, kbAmount, sellingCount, sellingAmount, increaseCount, increaseAmount, care}
 
   rows.forEach(function (row) {
     if (String(row[COL_STATUS]).trim() !== "承認済み") return;
 
     var name = String(row[COL_APPLICANT]).trim();
     if (!name) return;
+    var branch = String(row[COL_BRANCH]).trim();
     var area = String(row[COL_AREA]).trim();
     var category = String(row[COL_CATEGORY]).trim();
     var totals = computeCampaignRowTotals(row);
 
     if (!byPerson[name]) {
-      byPerson[name] = { area: "", kbSales: 0, kbAmount: 0, selling: 0, increase: 0, care: 0 };
+      byPerson[name] = {
+        area: "", branch: "", kbSales: 0, kbAmount: 0,
+        sellingCount: 0, sellingAmount: 0, increaseCount: 0, increaseAmount: 0, care: 0,
+      };
     }
     if (area) byPerson[name].area = area; // 最後に見つかったエリアを採用
+    if (branch) byPerson[name].branch = branch; // 最後に見つかった拠点を採用
 
     if (category === "きれいBOX") {
       byPerson[name].kbSales += totals.count;
       byPerson[name].kbAmount += totals.amount;
     } else if (category === "セリング") {
-      byPerson[name].selling += totals.amount;
+      byPerson[name].sellingCount += totals.count;
+      byPerson[name].sellingAmount += totals.amount;
     } else if (category === "増加・切替") {
-      byPerson[name].increase += totals.amount;
+      byPerson[name].increaseCount += totals.count;
+      byPerson[name].increaseAmount += totals.amount;
     } else if (category === "ケアサービス") {
       byPerson[name].care += totals.amount;
     }
   });
 
   writeCampaignPersonTable_(summarySheet, byPerson);
+
+  var rankingSheet = ss.getSheetByName(CAMPAIGN_RANKING_SHEET_NAME);
+  if (rankingSheet) {
+    writeCampaignRankingTable_(summarySheet, rankingSheet, byPerson);
+  }
 
   if (ui) ui.alert("集計表を更新しました（" + new Date().toLocaleString() + "）");
 }
@@ -213,13 +226,74 @@ function writeCampaignPersonTable_(sheet, byPerson) {
     return [
       p.kbSales || "",
       p.kbAmount || "",
-      p.selling || "",
-      p.increase || "",
+      p.sellingAmount || "",
+      p.increaseAmount || "",
       p.care || "",
     ];
   });
 
   sheet.getRange(PERSON_TABLE_FIRST_ROW, PERSON_TABLE_COL_KB_SALES, output.length, 5).setValues(output);
+}
+
+// ==========================================
+// ランキング表シートの自動更新
+// 「集計表」シートの担当者一覧（A列:担当者名, B列:拠点）と同じ並び順の担当者を対象に、
+// きれいBOX・セリングは金額の降順、増加は数量の降順で順位を付け、「ランキング表」シートに
+// 書き込む（同率は同じ順位にし、次の順位は同率の人数分スキップする＝スプレッドシートの
+// RANK関数と同じ方式）。1〜3行目（タイトル・カテゴリ見出し・列見出し）は手作業で用意されて
+// いるため触らず、4行目からのデータ部分だけを書き込む。
+// 対象データは updateCampaignSummary() 側で既に「承認済み」だけに絞り込まれた byPerson を
+// そのまま使うため、「申請中」「破棄」はここでも集計に含まれない。
+// ==========================================
+var CAMPAIGN_RANKING_SHEET_NAME = "ランキング表";
+var RANKING_FIRST_DATA_ROW = 4;
+var RANKING_BLOCK_KB_START_COL = 1;   // A列（きれいBOX：順位/担当者名/拠点/販売数/金額）
+var RANKING_BLOCK_SL_START_COL = 7;   // G列（セリング：順位/担当者名/拠点/販売数/金額）
+var RANKING_BLOCK_IC_START_COL = 13;  // M列（増加：順位/担当者名/拠点/数量）
+
+function writeCampaignRankingTable_(summarySheet, rankingSheet, byPerson) {
+  var lastRow = summarySheet.getLastRow();
+  if (lastRow < PERSON_TABLE_FIRST_ROW) return;
+
+  var numRows = lastRow - PERSON_TABLE_FIRST_ROW + 1;
+  var roster = summarySheet.getRange(PERSON_TABLE_FIRST_ROW, PERSON_TABLE_COL_NAME, numRows, 2).getValues(); // A:担当者名, B:拠点
+
+  var kbRows = [], slRows = [], icRows = [];
+  roster.forEach(function (r) {
+    var name = String(r[0]).trim();
+    if (!name) return;
+    var branch = String(r[1]).trim();
+    var p = byPerson[name] || {};
+    kbRows.push({ name: name, branch: branch, count: p.kbSales || 0, amount: p.kbAmount || 0 });
+    slRows.push({ name: name, branch: branch, count: p.sellingCount || 0, amount: p.sellingAmount || 0 });
+    icRows.push({ name: name, branch: branch, count: p.increaseCount || 0, amount: p.increaseAmount || 0 });
+  });
+
+  writeRankingBlock_(rankingSheet, RANKING_BLOCK_KB_START_COL, kbRows, true);
+  writeRankingBlock_(rankingSheet, RANKING_BLOCK_SL_START_COL, slRows, true);
+  writeRankingBlock_(rankingSheet, RANKING_BLOCK_IC_START_COL, icRows, false);
+}
+
+// withAmount: true＝金額の降順で順位付け（金額列も出力）、false＝数量の降順で順位付け（数量列のみ出力）
+function writeRankingBlock_(sheet, startCol, rows, withAmount) {
+  var sortKey = withAmount ? "amount" : "count";
+  var sorted = rows.slice().sort(function (a, b) { return b[sortKey] - a[sortKey]; });
+
+  var output = [];
+  var lastRank = 0, lastValue = null;
+  for (var i = 0; i < sorted.length; i++) {
+    var r = sorted[i];
+    var rank = (lastValue !== null && r[sortKey] === lastValue) ? lastRank : i + 1;
+    lastRank = rank;
+    lastValue = r[sortKey];
+    output.push(withAmount
+      ? [rank, r.name, r.branch, r.count, r.amount]
+      : [rank, r.name, r.branch, r.count]);
+  }
+
+  if (output.length === 0) return;
+  var numCols = withAmount ? 5 : 4;
+  sheet.getRange(RANKING_FIRST_DATA_ROW, startCol, output.length, numCols).setValues(output);
 }
 
 // メニューが表示されない（スクリプトがスプレッドシートに紐付いていない）場合はこれを
