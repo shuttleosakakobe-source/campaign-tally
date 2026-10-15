@@ -271,7 +271,7 @@ function writeCampaignRankingTable_(summarySheet, rankingSheet, byPerson) {
 
   writeRankingBlock_(rankingSheet, RANKING_BLOCK_KB_START_COL, kbRows, true);
   writeRankingBlock_(rankingSheet, RANKING_BLOCK_SL_START_COL, slRows, true);
-  writeRankingBlock_(rankingSheet, RANKING_BLOCK_IC_START_COL, icRows, false);
+  writeRankingBlock_(rankingSheet, RANKING_BLOCK_IC_START_COL, icRows, true);
 }
 
 // withAmount: true＝金額の降順で順位付け（金額列も出力）、false＝数量の降順で順位付け（数量列のみ出力）
