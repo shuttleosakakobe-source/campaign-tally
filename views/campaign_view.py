@@ -79,9 +79,15 @@ def _parse_date(s):
 
 def _customer_search_section():
     st.write("**🔍 顧客コード検索**")
-    col_input, col_btn = st.columns([4, 1])
+    col_input, col_btn, col_clear = st.columns([4, 1, 1])
     cust_code = col_input.text_input("顧客コード", key="camp_cust_code")
     btn_search = col_btn.button("🔍 検索", use_container_width=True)
+    btn_clear = col_clear.button("✖️ クリア", use_container_width=True)
+
+    if btn_clear:
+        st.session_state.pop("camp_cust_code", None)
+        st.session_state.pop("camp_customer", None)
+        st.rerun()
 
     if btn_search:
         if not cust_code.strip():
