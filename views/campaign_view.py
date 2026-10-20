@@ -121,6 +121,12 @@ def _entry_form_section(customer):
     st.write("---")
     st.write("**📝 キャンペーン実績入力**")
 
+    # 💡 ネットワークが遅いと「反応しない」ように見えて連打されやすく、1回の登録のつもりが
+    #    同じ内容で複数回送信されてしまうことがあった。送信中はボタンを無効化することで防ぐ
+    #    （無効化はsession_stateのフラグに基づくため、連打で割り込まれた再実行でも維持される）。
+    if "camp_submitting" not in st.session_state:
+        st.session_state["camp_submitting"] = False
+
     category = st.radio("カテゴリ", CATEGORIES, horizontal=True, key="camp_category")
 
     # カテゴリ切り替えに応じて空の値を持たせておく（未入力分は空欄のまま送信する）
@@ -198,34 +204,45 @@ def _entry_form_section(customer):
         care_date_str = care_date.strftime("%Y/%m/%d") if care_date else ""
         care_amount = c4.text_input("金額", key="camp_care_amount")
 
-    if st.button("✅ 登録する", type="primary", use_container_width=True):
+    submit_clicked = st.button(
+        "✅ 登録する", type="primary", use_container_width=True,
+        disabled=st.session_state["camp_submitting"],
+    )
+
+    if submit_clicked:
         if not customer:
             st.error("⚠️ 先に顧客コードを検索してください。")
             return
 
-        selling_flat = [v for item in selling_items for v in item]
-        increase_flat = [v for item in increase_items for v in item]
+        st.session_state["camp_submitting"] = True
+        try:
+            selling_flat = [v for item in selling_items for v in item]
+            increase_flat = [v for item in increase_items for v in item]
 
-        full_row = [
-            datetime.now(JST).strftime("%Y/%m/%d %H:%M:%S"),
-            st.session_state.get("user_name", ""),
-            st.session_state.get("user_branch", ""),
-            st.session_state.get("user_area", ""),
-            customer["cust_code"], customer["cust_name"],
-            customer["store_name"], customer["store_code"],
-            category,
-            sales_count, unit_price,
-        ] + selling_flat + increase_flat + [
-            product_before, price_before, qty_before,
-            product_after, price_after, qty_after,
-            care_type, care_content, care_date_str, care_amount,
-            "申請中", "", "", "",
-        ]
-        res = post_to_gas({
-            "action": "SUBMIT_CAMPAIGN_ENTRY",
-            "target_sheet_url": CAMPAIGN_SHEET_URL,
-            "full_row": full_row,
-        })
+            full_row = [
+                datetime.now(JST).strftime("%Y/%m/%d %H:%M:%S"),
+                st.session_state.get("user_name", ""),
+                st.session_state.get("user_branch", ""),
+                st.session_state.get("user_area", ""),
+                customer["cust_code"], customer["cust_name"],
+                customer["store_name"], customer["store_code"],
+                category,
+                sales_count, unit_price,
+            ] + selling_flat + increase_flat + [
+                product_before, price_before, qty_before,
+                product_after, price_after, qty_after,
+                care_type, care_content, care_date_str, care_amount,
+                "申請中", "", "", "",
+            ]
+            with st.spinner("登録しています..."):
+                res = post_to_gas({
+                    "action": "SUBMIT_CAMPAIGN_ENTRY",
+                    "target_sheet_url": CAMPAIGN_SHEET_URL,
+                    "full_row": full_row,
+                })
+        finally:
+            st.session_state["camp_submitting"] = False
+
         if res.get("status") == "success":
             for k in _ENTRY_FORM_KEYS:
                 st.session_state.pop(k, None)
